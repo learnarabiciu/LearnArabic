@@ -1,4 +1,5 @@
-const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyBxURPwHGz17e44R1iFra7Vq63-XtioVBHrJJgsHEmeFYYs5sif5I3io_r_QJ01KLTlA/exec";/* ============ CONFIG ============ */
+const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwt-6tWUIIvH0sUllMyyxd1XL_FxmdCKMgay8k8jRiZHsVtx-RqxydYMIx7q6wJAnRhNA/exec";
+/* ============ CONFIG ============ */
 const CRITERIA = [
   {key:'participation', label:'المشاركة والتفاعل'},
   {key:'behavior', label:'حسن السلوك'},
@@ -42,20 +43,28 @@ function emptyData(){
 
 async function loadData(){
   try{
+    const res = await fetch(SCRIPT_URL + "?action=getData");
+    const json = await res.json();
+    DATA = json ? json : emptyData();
+  }catch(e){
     const res = await window.storage.get(DATA_KEY, true);
     DATA = res && res.value ? JSON.parse(res.value) : emptyData();
-  }catch(e){
-    DATA = emptyData();
   }
-  /* توافق مع بيانات قديمة محفوظة قبل إضافة تقييم المعلمين/ـات */
   if(!DATA.teacherEvaluations) DATA.teacherEvaluations = [];
   if(!DATA.teacherDeductions) DATA.teacherDeductions = [];
 }
+
 async function saveData(){
   try{
     await window.storage.set(DATA_KEY, JSON.stringify(DATA), true);
+    await fetch(SCRIPT_URL, {
+      method: 'POST',
+      mode: 'no-cors',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(DATA)
+    });
   }catch(e){
-    toast('تعذّر حفظ البيانات، حاول مرة أخرى', true);
+    toast('تعذّر المزامنة أونلاين، تم الحفظ محلياً', true);
   }
 }
 async function getAdminPw(){
