@@ -1,4 +1,4 @@
-/* ============ CONFIG ============ */
+const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzifUaVVirDhw_2lMsffdDaFhnElnuLZoiZBtdQ_FNGmsk8SYbk1z-qJkEYKEhcJpA-jA/exec";/* ============ CONFIG ============ */
 const CRITERIA = [
   {key:'participation', label:'المشاركة والتفاعل'},
   {key:'behavior', label:'حسن السلوك'},
