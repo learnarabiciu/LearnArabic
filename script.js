@@ -54,32 +54,15 @@ async function loadData(){
 
 async function saveData(){
   try{
-    // 1. الحفظ المحلي الفوري للأمان
+    // 1. الحفظ المحلي الفوري لضمان الأمان التام
     await window.storage.set(DATA_KEY, JSON.stringify(DATA), true);
     
-    // 2. المزامنة أونلاين عبر نموذج مخفي لتجاوز قيود CORS وحجم البيانات تماماً
-    const form = document.createElement('form');
-    form.method = 'POST';
-    form.action = SCRIPT_URL;
-    form.target = 'hidden_iframe';
+    // 2. المزامنة أونلاين الفورية عبر تقنية Image Beacon لتجاوز CORS نهائياً
+    const jsonStr = JSON.stringify(DATA);
+    const targetUrl = SCRIPT_URL + "?data=" + encodeURIComponent(jsonStr);
     
-    let input = document.createElement('input');
-    input.type = 'hidden';
-    input.name = 'data';
-    input.value = JSON.stringify(DATA);
-    form.appendChild(input);
-    
-    if(!document.getElementById('hidden_iframe')){
-      let iframe = document.createElement('iframe');
-      iframe.id = 'hidden_iframe';
-      iframe.name = 'hidden_iframe';
-      iframe.style.display = 'none';
-      document.body.appendChild(iframe);
-    }
-    
-    document.body.appendChild(form);
-    form.submit();
-    form.remove();
+    const img = new Image();
+    img.src = targetUrl;
     
     toast('تمت المزامنة أونلاين بنجاح 🟢');
   }catch(e){
