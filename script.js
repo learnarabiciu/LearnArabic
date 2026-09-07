@@ -53,22 +53,37 @@ async function loadData(){
 }
 
 async function saveData(){
-  try {
+  try{
+    // حفظ محلي فوري
     await window.storage.set(DATA_KEY, JSON.stringify(DATA), true);
-  } catch(e) {}
-
-  try {
-    const encodedData = encodeURIComponent(JSON.stringify(DATA));
-    fetch(SCRIPT_URL + "?data=" + encodedData, { mode: 'no-cors' })
-      .then(() => {
-        toast('تمت المزامنة أونلاين بنجاح 🟢');
-      })
-      .catch(() => {
-        toast('تم الحفظ محلياً');
-      });
+    
+    // إرسال البيانات عبر نموذج مخفي لتجاوز قيود الحجم وCORS وضمان وصولها للشيت
+    const form = document.createElement('form');
+    form.method = 'POST';
+    form.action = SCRIPT_URL;
+    form.target = 'hidden_iframe';
+    
+    let input = document.createElement('input');
+    input.type = 'hidden';
+    input.name = 'data';
+    input.value = JSON.stringify(DATA);
+    form.appendChild(input);
+    
+    if(!document.getElementById('hidden_iframe')){
+      let iframe = document.createElement('iframe');
+      iframe.id = 'hidden_iframe';
+      iframe.name = 'hidden_iframe';
+      iframe.style.display = 'none';
+      document.body.appendChild(iframe);
+    }
+    
+    document.body.appendChild(form);
+    form.submit();
+    form.remove();
+    
     toast('تمت المزامنة أونلاين بنجاح 🟢');
-  } catch(e) {
-    toast('تم الحفظ محلياً', true);
+  }catch(e){
+    toast('تعذّر المزامنة أونلاين، تم الحفظ محلياً', true);
   }
 }
 
