@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>منصة السقيفة لتقييم الطلاب</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@300;400;500;700;800;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="app-header">
+  <div class="brand">
+    <img src="assets/Arabic_logo.png" alt="شعار البرنامج">
+    <div class="brand-div"></div>
+    <img src="assets/logo-saqifah.png" alt="شعار السقيفة">
+    <div class="brand-text">
+      <b>منصة تقييم الطلاب</b>
+      <span>برنامج تعلم العربية &middot; السقيفة</span>
+    </div>
+  </div>
+  <div class="header-actions" id="headerActions"></div>
+</header>
+
+<!-- ROLE SELECT -->
+<section id="screen-role" class="screen active">
+  <div class="hero">
+    <h1>أهلاً بك</h1>
+    <p>منصة يقيّم من خلالها المعلمون والمعلمات طلابهم أولاً بأول، وتشرف عليها الإدارة بشكل كامل، لتكريم أفضل طالب في نهاية كل دورة.</p>
+    <div class="role-grid">
+      <div class="role-card">
+        <div class="role-icon">🛠️</div>
+        <h3>دخول الإدارة</h3>
+        <p>إضافة القاعات والمعلمين والمعلمات والطلاب، ومتابعة جميع التقييمات والتقارير.</p>
+        <button onclick="showScreen('screen-admin-login')">دخول كإدارة</button>
+      </div>
+      <div class="role-card teacher">
+        <div class="role-icon">🧑‍🏫</div>
+        <h3>دخول المعلم/ـة</h3>
+        <p>اختيار القاعة، تقييم الطلاب، ورفع التقرير الأسبوعي.</p>
+        <button onclick="showScreen('screen-teacher-login')">دخول كمعلم/ـة</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ADMIN LOGIN -->
+<section id="screen-admin-login" class="screen">
+  <div class="login-wrap">
+    <div class="login-card">
+      <a class="back-link" onclick="showScreen('screen-role')">→ رجوع</a>
+      <h2>دخول الإدارة</h2>
+      <p class="sub">أدخل كلمة المرور الخاصة بلوحة الإدارة</p>
+      <div class="field">
+        <label>كلمة المرور</label>
+        <input type="password" id="adminPwInput" placeholder="••••••••">
+      </div>
+      <button class="btn block" onclick="adminLogin()">دخول</button>
+      <p class="hint" id="adminHint"></p>
+    </div>
+  </div>
+</section>
+
+<!-- TEACHER LOGIN -->
+<section id="screen-teacher-login" class="screen">
+  <div class="login-wrap">
+    <div class="login-card">
+      <a class="back-link" onclick="showScreen('screen-role')">→ رجوع</a>
+      <h2>دخول المعلم/ـة</h2>
+      <p class="sub">اختر اسمك من القائمة (الأسماء تُضاف من قِبل الإدارة)</p>
+      <div class="field">
+        <label>اسم المعلم/ـة</label>
+        <select id="teacherSelect"></select>
+      </div>
+      <button class="btn orange block" onclick="teacherLogin()">دخول</button>
+      <p class="hint" id="teacherHint"></p>
+    </div>
+  </div>
+</section>
+
+<!-- ADMIN DASHBOARD -->
+<section id="screen-admin" class="screen">
+  <div class="dash">
+    <nav class="sidebar" id="adminNav"></nav>
+    <div class="main" id="adminMain"></div>
+  </div>
+</section>
+
+<!-- TEACHER DASHBOARD -->
+<section id="screen-teacher" class="screen">
+  <div class="dash">
+    <nav class="sidebar" id="teacherNav"></nav>
+    <div class="main" id="teacherMain"></div>
+  </div>
+</section>
+
+<div class="toast-wrap" id="toastWrap"></div>
+
+<script src="script.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+</body>
+</html>
