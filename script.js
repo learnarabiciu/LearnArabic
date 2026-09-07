@@ -8,7 +8,6 @@ const CRITERIA = [
   {key:'cooperation', label:'التعاون مع الزملاء'},
   {key:'commitment', label:'الالتزام بالوقت'}
 ];
-/* تقييم المعلمين/ـات: خاص بالإدارة فقط ولا يظهر أبداً في حساب المعلم/ـة */
 const TEACHER_CRITERIA = [
   {key:'assessment_methods', label:'أساليب التقويم'},
   {key:'non_class_skills', label:'المهارات غير الصفية'},
@@ -34,7 +33,6 @@ let selectedTeacherRoomId = null;
 let openStudentId = null;
 let openTeacherEvalId = null;
 
-/* ============ STORAGE HELPERS ============ */
 function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,7); }
 
 function emptyData(){
@@ -56,25 +54,38 @@ async function loadData(){
 
 async function saveData(){
   try{
-    // حفظ محلي فوري لضمان عدم ضياع أي بيانات
     await window.storage.set(DATA_KEY, JSON.stringify(DATA), true);
     
-    // إرسال البيانات أونلاين لقوقل شيت بدون قيود المتصفح (CORS)
-    if (navigator.sendBeacon) {
-      navigator.sendBeacon(SCRIPT_URL, JSON.stringify(DATA));
-    } else {
-      fetch(SCRIPT_URL, {
-        method: 'POST',
-        mode: 'no-cors',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(DATA)
-      });
+    // استخدام طريقة الإرسال الخفي لتجنب رسائل الخطأ وحظر المتصفح
+    const form = document.createElement('form');
+    form.method = 'POST';
+    form.action = SCRIPT_URL;
+    form.target = 'hidden_iframe';
+    
+    let input = document.createElement('input');
+    input.type = 'hidden';
+    input.name = 'data';
+    input.value = JSON.stringify(DATA);
+    form.appendChild(input);
+    
+    if(!document.getElementById('hidden_iframe')){
+      let iframe = document.createElement('iframe');
+      iframe.id = 'hidden_iframe';
+      iframe.name = 'hidden_iframe';
+      iframe.style.display = 'none';
+      document.body.appendChild(iframe);
     }
-    toast('تم الحفظ والمزامنة بنجاح');
+    
+    document.body.appendChild(form);
+    form.submit();
+    form.remove();
+    
+    toast('تم الحفظ والمزامنة أونلاين بنجاح');
   }catch(e){
     toast('تم الحفظ محلياً', true);
   }
 }
+
 async function getAdminPw(){
   try{
     const res = await window.storage.get(PW_KEY, true);
@@ -85,9 +96,9 @@ async function setAdminPw(pw){
   try{ await window.storage.set(PW_KEY, pw, true); }catch(e){}
 }
 
-/* ============ UI HELPERS ============ */
 function toast(msg, isErr){
   const wrap = document.getElementById('toastWrap');
+  if(!wrap) return;
   const t = document.createElement('div');
   t.className = 'toast'+(isErr?' err':'');
   t.textContent = msg;
@@ -97,12 +108,14 @@ function toast(msg, isErr){
 
 function showScreen(id){
   document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
-  document.getElementById(id).classList.add('active');
+  const target = document.getElementById(id);
+  if(target) target.classList.add('active');
   renderHeaderActions();
 }
 
 function renderHeaderActions(){
   const el = document.getElementById('headerActions');
+  if(!el) return;
   el.innerHTML = '';
   if(currentAdmin){
     el.innerHTML = '<span class="pill">لوحة الإدارة</span><button class="logout-btn" onclick="logoutAdmin()">تسجيل خروج</button>';
@@ -133,7 +146,7 @@ function starsHtml(value, clickable, onClickPrefix){
 function avgScore(scores){
   const vals = CRITERIA.map(c=> scores && scores[c.key] ? scores[c.key] : 0);
   const sum = vals.reduce((a,b)=>a+b,0);
-  return sum / CRITERIA.length; // out of 5
+  return sum / CRITERIA.length;
 }
 
 function studentAverage(studentId){
@@ -142,11 +155,10 @@ function studentAverage(studentId){
   return avgScore(ev.scores);
 }
 
-/* ---- تقييم المعلمين/ـات (إدارة فقط) ---- */
 function avgTeacherScore(scores){
   const vals = TEACHER_CRITERIA.map(c=> scores && scores[c.key] ? scores[c.key] : 0);
   const sum = vals.reduce((a,b)=>a+b,0);
-  return sum / TEACHER_CRITERIA.length; // من 5
+  return sum / TEACHER_CRITERIA.length;
 }
 function teacherDeductionTotal(teacherId){
   return DATA.teacherDeductions.filter(d=>d.teacherId===teacherId).reduce((a,b)=>a+b.points,0);
@@ -162,7 +174,6 @@ function lastReportOf(teacherId){
   return mine.length ? mine[0] : null;
 }
 
-/* ============ AUTH ============ */
 async function adminLogin(){
   const pw = document.getElementById('adminPwInput').value;
   const real = await getAdminPw();
@@ -184,6 +195,7 @@ function logoutAdmin(){
 }
 function populateTeacherSelect(){
   const sel = document.getElementById('teacherSelect');
+  if(!sel) return;
   if(DATA.teachers.length===0){
     sel.innerHTML = '<option value="">لا يوجد معلمون/معلمات مضافون بعد</option>';
     return;
@@ -192,7 +204,7 @@ function populateTeacherSelect(){
 }
 function teacherLogin(){
   const sel = document.getElementById('teacherSelect');
-  if(!sel.value){ toast('يرجى مطالبة الإدارة بإضافة اسمك أولاً', true); return; }
+  if(!sel || !sel.value){ toast('يرجى مطالبة الإدارة بإضافة اسمك أولاً', true); return; }
   currentTeacherId = sel.value;
   const myRooms = DATA.rooms.filter(r=>r.teacherId===currentTeacherId);
   selectedTeacherRoomId = myRooms.length ? myRooms[0].id : null;
@@ -206,7 +218,6 @@ function logoutTeacher(){
   showScreen('screen-role');
 }
 
-/* ============ ADMIN: NAV ============ */
 const ADMIN_TABS = [
   {id:'rooms', label:'القاعات والدورات', ic:'🏫'},
   {id:'teachers', label:'المعلمون والمعلمات', ic:'🧑‍🏫'},
@@ -223,16 +234,16 @@ const ADMIN_TABS = [
 function renderAdmin(){
   renderHeaderActions();
   const nav = document.getElementById('adminNav');
+  if(!nav) return;
   nav.innerHTML = ADMIN_TABS.map(t=>
     '<button class="side-btn'+(adminTab===t.id?' active':'')+'" onclick="setAdminTab(\''+t.id+'\')">'+
     '<span class="ic">'+t.ic+'</span>'+t.label+'</button>'
   ).join('');
   const main = document.getElementById('adminMain');
-  main.innerHTML = ADMIN_RENDERERS[adminTab]();
+  if(main) main.innerHTML = ADMIN_RENDERERS[adminTab]();
 }
 function setAdminTab(id){ adminTab=id; renderAdmin(); }
 
-/* ---- Admin: Rooms ---- */
 const ADMIN_RENDERERS = {
   rooms: renderAdminRooms,
   teachers: renderAdminTeachers,
@@ -287,7 +298,6 @@ function deleteRoom(id){
   saveData(); renderAdmin(); toast('تم حذف القاعة');
 }
 
-/* ---- Admin: Teachers ---- */
 function renderAdminTeachers(){
   const rows = DATA.teachers.map(t=>{
     const roomNames = DATA.rooms.filter(r=>r.teacherId===t.id).map(r=>r.name).join('، ') || '—';
@@ -339,7 +349,6 @@ function deleteTeacher(id){
   saveData(); renderAdmin(); toast('تم حذف المعلم/ـة');
 }
 
-/* ---- Admin: تقييم المعلمين والمعلمات (خاص بالإدارة، لا يظهر للمعلم/ـة) ---- */
 function renderAdminTeacherEval(){
   if(!DATA.teachers.length){
     return '<h2>تقييم المعلمين والمعلمات</h2><div class="card"><p class="empty">أضف معلمين/معلمات أولاً من تبويب "المعلمون والمعلمات".</p></div>';
@@ -431,7 +440,6 @@ function deleteDeduction(id){
   saveData(); renderAdmin(); toast('تم حذف الخصم');
 }
 
-/* ---- Admin: Students ---- */
 function renderAdminStudents(){
   const roomOptions = DATA.rooms.map(r=>'<option value="'+r.id+'">'+escapeHtml(r.name)+'</option>').join('');
   const groups = DATA.rooms.map(r=>{
@@ -489,7 +497,6 @@ function deleteStudent(id){
   saveData(); renderAdmin(); toast('تم حذف الطالب');
 }
 
-/* ---- Admin: Evaluations (read-only overview) ---- */
 function renderAdminEvals(){
   const roomOptions = DATA.rooms.map(r=>'<option value="'+r.id+'">'+escapeHtml(r.name)+'</option>').join('');
   const filterId = window.__evalFilter || '';
@@ -514,7 +521,6 @@ function renderAdminEvals(){
   </div>`;
 }
 
-/* ---- Admin: Reports ---- */
 function renderAdminReports(){
   const rows = DATA.reports.slice().reverse().map(rep=>{
     const t = DATA.teachers.find(x=>x.id===rep.teacherId);
@@ -542,7 +548,6 @@ function deleteReport(id){
   saveData(); renderAdmin(); toast('تم حذف التقرير');
 }
 
-/* ---- Admin: Announcements ---- */
 function renderAdminAnnounce(){
   const rows = DATA.announcements.slice().reverse().map(a=>
     '<div class="announce-item"><div class="d">'+fmtDate(a.date)+' <button class="icon-btn" style="float:left;" onclick="deleteAnnounce(\''+a.id+'\')">حذف ✕</button></div>'+escapeHtml(a.text)+'</div>'
@@ -568,7 +573,6 @@ function deleteAnnounce(id){
   saveData(); renderAdmin(); toast('تم حذف التعميم');
 }
 
-/* ---- Admin: Champion ---- */
 function renderAdminChampion(){
   const blocks = DATA.rooms.map(r=>{
     const students = DATA.students.filter(s=>s.roomId===r.id).map(s=>({s, avg: studentAverage(s.id)||0}));
@@ -596,7 +600,6 @@ function toggleChampion(roomId, studentId){
   saveData(); renderAdmin(); toast('تم تحديث تكريم البطل');
 }
 
-/* ---- Admin: Export ---- */
 function renderAdminExport(){
   return `
   <h2>تصدير البيانات إلى Excel</h2>
@@ -662,7 +665,6 @@ function exportExcel(){
   toast('تم تنزيل ملف Excel');
 }
 
-/* ---- Admin: Settings ---- */
 function renderAdminSettings(){
   return `
   <h2>الإعدادات</h2>
@@ -684,7 +686,6 @@ async function changeAdminPw(){
   toast('تم تحديث كلمة المرور');
 }
 
-/* ============ TEACHER SIDE ============ */
 const TEACHER_TABS = [
   {id:'evaluate', label:'تقييم الطلاب', ic:'📊'},
   {id:'reports', label:'تقاريري الأسبوعية', ic:'📄'},
@@ -695,6 +696,7 @@ const TEACHER_TABS = [
 function renderTeacher(){
   renderHeaderActions();
   const nav = document.getElementById('teacherNav');
+  if(!nav) return;
   nav.innerHTML = TEACHER_TABS.map(t=>{
     let badge = '';
     if(t.id==='announce'){
@@ -706,7 +708,7 @@ function renderTeacher(){
     return '<button class="side-btn'+(teacherTab===t.id?' active':'')+'" onclick="setTeacherTab(\''+t.id+'\')"><span class="ic">'+t.ic+'</span>'+t.label+badge+'</button>';
   }).join('');
   const main = document.getElementById('teacherMain');
-  main.innerHTML = TEACHER_RENDERERS[teacherTab]();
+  if(main) main.innerHTML = TEACHER_RENDERERS[teacherTab]();
 }
 function setTeacherTab(id){
   teacherTab=id;
@@ -771,7 +773,6 @@ function setScore(studentId, critKey, value){
   }
   ev.scores[critKey] = value;
   renderTeacher();
-  // re-open the same student's card after re-render
   openStudentId = studentId;
   const body = document.getElementById('body-'+studentId);
   if(body) body.classList.add('open');
@@ -868,6 +869,7 @@ async function submitReport(){
       toast('تعذّر معالجة إحدى الصور، تم إرسال التقرير بدونها', true);
     }
   }
+  DATA.reports.reports = DATA.reports || [];
   DATA.reports.push({id:uid(), teacherId:currentTeacherId, roomId, week, content, driveLink, images, date:new Date().toISOString()});
   await saveData(); renderTeacher(); toast('تم إرسال التقرير للإدارة');
 }
@@ -900,7 +902,6 @@ function saveMyPhone(){
   saveData(); toast('تم حفظ رقم الجوال');
 }
 
-/* ============ BOOT ============ */
 async function boot(){
   await loadData();
   populateTeacherSelect();
