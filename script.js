@@ -54,35 +54,22 @@ async function loadData(){
 
 async function saveData(){
   try{
+    // حفظ محلي لضمان الأمان اللحظي
     await window.storage.set(DATA_KEY, JSON.stringify(DATA), true);
     
-    // استخدام طريقة الإرسال الخفي لتجنب رسائل الخطأ وحظر المتصفح
-    const form = document.createElement('form');
-    form.method = 'POST';
-    form.action = SCRIPT_URL;
-    form.target = 'hidden_iframe';
+    // إرسال البيانات أونلاين لقوقل شيت مع تجاوز قيود CORS
+    await fetch(SCRIPT_URL, {
+      method: 'POST',
+      mode: 'no-cors',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(DATA)
+    });
     
-    let input = document.createElement('input');
-    input.type = 'hidden';
-    input.name = 'data';
-    input.value = JSON.stringify(DATA);
-    form.appendChild(input);
-    
-    if(!document.getElementById('hidden_iframe')){
-      let iframe = document.createElement('iframe');
-      iframe.id = 'hidden_iframe';
-      iframe.name = 'hidden_iframe';
-      iframe.style.display = 'none';
-      document.body.appendChild(iframe);
-    }
-    
-    document.body.appendChild(form);
-    form.submit();
-    form.remove();
-    
-    toast('تم الحفظ والمزامنة أونلاين بنجاح');
+    toast('تمت المزامنة أونلاين بنجاح 🟢');
   }catch(e){
-    toast('تم الحفظ محلياً', true);
+    toast('تعذّر المزامنة أونلاين، تم الحفظ محلياً', true);
   }
 }
 
