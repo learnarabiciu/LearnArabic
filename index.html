@@ -6,6 +6,18 @@
   <title>منصة تعلم العربية - السقيفة</title>
   <!-- مكتبة تصدير Excel -->
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+<script>
+  const SUPABASE_URL = 'https://mresinrhhzmrialcqjyr.supabase.co';
+
+  const SUPABASE_KEY = 'sb_publishable_R92kgFxPudlmAsiDYu2vow_3CLortUp';
+
+  const supabaseClient = window.supabase.createClient(
+    SUPABASE_URL,
+    SUPABASE_KEY
+  );
+</script>
   <style>
     :root {
       --bg: #f8f6f0;
