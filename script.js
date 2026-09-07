@@ -54,18 +54,15 @@ async function loadData(){
 
 async function saveData(){
   try{
-    // حفظ محلي لضمان الأمان اللحظي
+    // حفظ محلي فوري للأمان
     await window.storage.set(DATA_KEY, JSON.stringify(DATA), true);
     
-    // إرسال البيانات أونلاين لقوقل شيت مع تجاوز قيود CORS
-    await fetch(SCRIPT_URL, {
-      method: 'POST',
-      mode: 'no-cors',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(DATA)
-    });
+    // إرسال البيانات أونلاين بطريقة تتجاوز حظر المتصفح تماماً
+    const encodedData = encodeURIComponent(JSON.stringify(DATA));
+    const url = SCRIPT_URL + "?data=" + encodedData;
+    
+    const img = new Image();
+    img.src = url;
     
     toast('تمت المزامنة أونلاين بنجاح 🟢');
   }catch(e){
