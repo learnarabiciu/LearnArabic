@@ -54,24 +54,18 @@ async function loadData(){
 
 async function saveData(){
   try{
-    // حفظ محلي فوري للأمان
+    // 1. الحفظ المحلي أولاً لضمان عدم ضياع البيانات أبداً
     await window.storage.set(DATA_KEY, JSON.stringify(DATA), true);
     
-    // إرسال البيانات مباشرة عبر رابط السكربت كـ GET في الخلفية
+    // 2. المزامنة الفورية مع قوقل شيت بدون أي تعقيد
     const jsonStr = JSON.stringify(DATA);
     const targetUrl = SCRIPT_URL + "?data=" + encodeURIComponent(jsonStr);
     
-    fetch(targetUrl, { method: 'GET', mode: 'no-cors' })
-      .then(() => {
-        toast('تمت المزامنة أونلاين بنجاح 🟢');
-      })
-      .catch(() => {
-        toast('تم الحفظ محلياً');
-      });
-      
+    await fetch(targetUrl, { method: 'GET', mode: 'no-cors' });
+    
     toast('تمت المزامنة أونلاين بنجاح 🟢');
   }catch(e){
-    toast('تعذّر المزامنة أونلاين، تم الحفظ محلياً', true);
+    toast('تم الحفظ محلياً', true);
   }
 }
 
