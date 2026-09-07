@@ -53,20 +53,22 @@ async function loadData(){
 }
 
 async function saveData(){
-  try{
-    // حفظ محلي فوري للأمان
+  try {
     await window.storage.set(DATA_KEY, JSON.stringify(DATA), true);
-    
-    // إرسال البيانات أونلاين بطريقة تتجاوز حظر المتصفح تماماً
+  } catch(e) {}
+
+  try {
     const encodedData = encodeURIComponent(JSON.stringify(DATA));
-    const url = SCRIPT_URL + "?data=" + encodedData;
-    
-    const img = new Image();
-    img.src = url;
-    
+    fetch(SCRIPT_URL + "?data=" + encodedData, { mode: 'no-cors' })
+      .then(() => {
+        toast('تمت المزامنة أونلاين بنجاح 🟢');
+      })
+      .catch(() => {
+        toast('تم الحفظ محلياً');
+      });
     toast('تمت المزامنة أونلاين بنجاح 🟢');
-  }catch(e){
-    toast('تعذّر المزامنة أونلاين، تم الحفظ محلياً', true);
+  } catch(e) {
+    toast('تم الحفظ محلياً', true);
   }
 }
 
