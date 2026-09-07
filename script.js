@@ -1,4 +1,17 @@
-const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwt-6tWUIIvH0sUllMyyxd1XL_FxmdCKMgay8k8jRiZHsVtx-RqxydYMIx7q6wJAnRhNA/exec";
+// معلومات ربط Firebase السحابية الخاصة بمشروعك
+const firebaseConfig = {
+  apiKey: "AIzaSyCC6hmtKjAWSUVNBZVb-hIyl-nOqKdqOrk",
+  authDomain: "learnarabic-6bf48.firebaseapp.com",
+  projectId: "learnarabic-6bf48",
+  storageBucket: "learnarabic-6bf48.appspot.com",
+  messagingSenderId: "463193491422",
+  appId: "1:463193491422:web:8db1242c851f3a0edb3f4f"
+};
+
+// تهيئة الاتصال بالسحابة
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+
 /* ============ CONFIG ============ */
 const CRITERIA = [
   {key:'participation', label:'المشاركة والتفاعل'},
@@ -39,11 +52,16 @@ function emptyData(){
   return {teachers:[], students:[], rooms:[], evaluations:[], reports:[], announcements:[], champions:{}, autoExport:false, teacherEvaluations:[], teacherDeductions:[]};
 }
 
+// دالة تحميل البيانات من سحابة Firebase
 async function loadData(){
   try{
-    const res = await fetch(SCRIPT_URL + "?action=getData");
-    const json = await res.json();
-    DATA = json ? json : emptyData();
+    const docRef = db.collection("appData").doc("mainStore");
+    const doc = await docRef.get();
+    if(doc.exists && doc.data().payload){
+      DATA = JSON.parse(doc.data().payload);
+    } else {
+      DATA = emptyData();
+    }
   }catch(e){
     const res = await window.storage.get(DATA_KEY, true);
     DATA = res && res.value ? JSON.parse(res.value) : emptyData();
@@ -52,21 +70,21 @@ async function loadData(){
   if(!DATA.teacherDeductions) DATA.teacherDeductions = [];
 }
 
+// دالة حفظ البيانات وتحديثها سحابياً لحظياً
 async function saveData(){
   try{
-    // 1. الحفظ المحلي الفوري لضمان الأمان التام
+    // حفظ احتياطي محلي
     await window.storage.set(DATA_KEY, JSON.stringify(DATA), true);
     
-    // 2. المزامنة أونلاين الفورية عبر تقنية Image Beacon لتجاوز CORS نهائياً
-    const jsonStr = JSON.stringify(DATA);
-    const targetUrl = SCRIPT_URL + "?data=" + encodeURIComponent(jsonStr);
+    // الحفظ والتحديث المباشر في Firebase Firestore
+    await db.collection("appData").doc("mainStore").set({
+      payload: JSON.stringify(DATA),
+      updatedAt: new Date().toISOString()
+    });
     
-    const img = new Image();
-    img.src = targetUrl;
-    
-    toast('تمت المزامنة أونلاين بنجاح 🟢');
+    toast('تمت المزامنة سحابياً بنجاح 🟢');
   }catch(e){
-    toast('تم الحفظ محلياً', true);
+    toast('تعذّر الاتصال بالسحابة، تم الحفظ محلياً', true);
   }
 }
 
@@ -184,11 +202,11 @@ function populateTeacherSelect(){
     sel.innerHTML = '<option value="">لا يوجد معلمون/معلمات مضافون بعد</option>';
     return;
   }
-  sel.innerHTML = DATA.teachers.map(t=>'<option value="'+t.id+'">'+escapeHtml(t.name)+'</option>').join('');
+  sel.innerHTML = '<option value="">— اختر اسمك —</option>' + DATA.teachers.map(t=>'<option value="'+t.id+'">'+escapeHtml(t.name)+'</option>').join('');
 }
 function teacherLogin(){
   const sel = document.getElementById('teacherSelect');
-  if(!sel || !sel.value){ toast('يرجى مطالبة الإدارة بإضافة اسمك أولاً', true); return; }
+  if(!sel || !sel.value){ toast('يرجى اختيار اسمك أولاً', true); return; }
   currentTeacherId = sel.value;
   const myRooms = DATA.rooms.filter(r=>r.teacherId===currentTeacherId);
   selectedTeacherRoomId = myRooms.length ? myRooms[0].id : null;
