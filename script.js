@@ -1,17 +1,3 @@
-// معلومات ربط Firebase السحابية الخاصة بمشروعك
-const firebaseConfig = {
-  apiKey: "AIzaSyCC6hmtKjAWSUVNBZVb-hIyl-nOqKdqOrk",
-  authDomain: "learnarabic-6bf48.firebaseapp.com",
-  projectId: "learnarabic-6bf48",
-  storageBucket: "learnarabic-6bf48.appspot.com",
-  messagingSenderId: "463193491422",
-  appId: "1:463193491422:web:8db1242c851f3a0edb3f4f"
-};
-
-// تهيئة الاتصال بالسحابة
-firebase.initializeApp(firebaseConfig);
-const db = firebase.firestore();
-
 /* ============ CONFIG ============ */
 const CRITERIA = [
   {key:'participation', label:'المشاركة والتفاعل'},
@@ -52,39 +38,23 @@ function emptyData(){
   return {teachers:[], students:[], rooms:[], evaluations:[], reports:[], announcements:[], champions:{}, autoExport:false, teacherEvaluations:[], teacherDeductions:[]};
 }
 
-// دالة تحميل البيانات من سحابة Firebase
 async function loadData(){
   try{
-    const docRef = db.collection("appData").doc("mainStore");
-    const doc = await docRef.get();
-    if(doc.exists && doc.data().payload){
-      DATA = JSON.parse(doc.data().payload);
-    } else {
-      DATA = emptyData();
-    }
-  }catch(e){
     const res = await window.storage.get(DATA_KEY, true);
     DATA = res && res.value ? JSON.parse(res.value) : emptyData();
+  }catch(e){
+    DATA = emptyData();
   }
   if(!DATA.teacherEvaluations) DATA.teacherEvaluations = [];
   if(!DATA.teacherDeductions) DATA.teacherDeductions = [];
 }
 
-// دالة حفظ البيانات وتحديثها سحابياً لحظياً
 async function saveData(){
   try{
-    // حفظ احتياطي محلي
     await window.storage.set(DATA_KEY, JSON.stringify(DATA), true);
-    
-    // الحفظ والتحديث المباشر في Firebase Firestore
-    await db.collection("appData").doc("mainStore").set({
-      payload: JSON.stringify(DATA),
-      updatedAt: new Date().toISOString()
-    });
-    
-    toast('تمت المزامنة سحابياً بنجاح 🟢');
+    toast('تم الحفظ بنجاح 🟢');
   }catch(e){
-    toast('تعذّر الاتصال بالسحابة، تم الحفظ محلياً', true);
+    toast('تعذّر الحفظ', true);
   }
 }
 
