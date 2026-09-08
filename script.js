@@ -33,6 +33,8 @@ let currentProfile = null;
 let currentAdmin = false;
 let currentTeacherId = null;
 let selectedTeacherRoomId = null;
+let selectedTeacherWeek = 1;
+let adminTeacherEvalWeek = 1;
 let adminTab = 'rooms';
 let teacherTab = 'evaluate';
 
@@ -246,7 +248,8 @@ function mapRoom(r){
     id:r.id,
     name:r.name,
     course:r.course||'',
-    teacherId:r.teacher_id||null
+    teacherId:r.teacher_id||null,
+    durationWeeks:r.duration_weeks||null
   };
 }
 
@@ -267,6 +270,7 @@ function mapEval(r){
     studentId:r.student_id,
     teacherId:r.teacher_id,
     roomId:r.room_id,
+    week:Number(r.week||1),
     scores,
     note:r.note||'',
     date:r.created_at||r.date
@@ -279,6 +283,7 @@ function mapTeacherEval(r){
   return {
     id:r.id,
     teacherId:r.teacher_id,
+    week:Number(r.week||1),
     scores,
     note:r.note||'',
     date:r.created_at||r.date
@@ -892,6 +897,13 @@ function renderAdminRooms(){
         class="input"
         placeholder="اسم الدورة / المستوى">
 
+      <input
+        id="roomDuration"
+        type="number"
+        min="1"
+        class="input"
+        placeholder="مدة الدورة (عدد الأسابيع)">
+
       <select
         id="roomTeacher"
         class="input">
@@ -926,6 +938,7 @@ function renderAdminRooms(){
           <tr>
             <th>القاعة</th>
             <th>الدورة</th>
+            <th>المدة</th>
             <th>المعلم</th>
             <th>الطلاب</th>
             <th></th>
@@ -945,6 +958,14 @@ function renderAdminRooms(){
 
               <td>
                 ${esc(r.course)}
+              </td>
+
+              <td>
+                ${
+                  r.durationWeeks
+                  ? `${r.durationWeeks} أسبوع`
+                  : '-'
+                }
               </td>
 
               <td>
@@ -1003,6 +1024,11 @@ async function addRoom(e){
 
         course:
           $('roomCourse').value.trim(),
+
+        duration_weeks:
+          $('roomDuration').value
+            ? Number($('roomDuration').value)
+            : null,
 
         teacher_id:
           $('roomTeacher').value||null
@@ -1400,12 +1426,20 @@ function renderAdminTeacherEval(){
     'تقييم المعلمين',
 
     `
+    <div class="notice">
+
+      التقييم أسبوعي ومستمر طوال مدة الدورة:
+      اختر المعلم والأسبوع، ثم سجّل تقييم ذلك
+      الأسبوع. كل أسبوع يُحفظ بشكل منفصل.
+
+    </div>
+
     <div class="toolbar">
 
       <select
         id="adminTeacherEvalSelect"
         class="input"
-        onchange="adminTeacherEvalSelected=this.value;renderAdmin()">
+        onchange="adminTeacherEvalSelected=this.value;adminTeacherEvalWeek=1;renderAdmin()">
 
         <option value="">
           اختر معلمًا
@@ -1413,13 +1447,42 @@ function renderAdminTeacherEval(){
 
         ${DATA.teachers.map(t=>`
 
-          <option value="${t.id}">
+          <option
+            value="${t.id}"
+            ${
+              window.adminTeacherEvalSelected===t.id
+              ?'selected'
+              :''
+            }>
             ${esc(t.name)}
           </option>
 
         `).join('')}
 
       </select>
+
+      ${
+        window.adminTeacherEvalSelected
+        ? `
+          <label>الأسبوع</label>
+          <select
+            class="input"
+            onchange="adminTeacherEvalWeek=Number(this.value);renderAdmin()">
+
+            ${Array.from({length:24},(_,i)=>i+1).map(w=>`
+
+              <option
+                value="${w}"
+                ${adminTeacherEvalWeek===w?'selected':''}>
+                أسبوع ${w}
+              </option>
+
+            `).join('')}
+
+          </select>
+        `
+        :''
+      }
 
     </div>
 
@@ -1429,6 +1492,27 @@ function renderAdminTeacherEval(){
 
     `
   );
+}
+
+function renderTeacherEvaluationHistory(tid){
+
+  const rows=
+    DATA.teacherEvaluations
+      .filter(x=>x.teacherId===tid)
+      .sort((a,b)=>a.week-b.week);
+
+  if(!rows.length){
+    return '';
+  }
+
+  return `
+    <div class="notice">
+      سجل الأسابيع السابقة:
+      ${rows.map(r=>
+        `أسبوع ${r.week}: ${avgScores(r.scores,TEACHER_CRITERIA)}%`
+      ).join(' | ')}
+    </div>
+  `;
 }
 
 function renderTeacherEvaluationEditor(tid){
@@ -1442,17 +1526,21 @@ function renderTeacherEvaluationEditor(tid){
     `;
   }
 
+  const week=adminTeacherEvalWeek||1;
+
   const row=
     DATA.teacherEvaluations.find(
-      x=>x.teacherId===tid
+      x=>x.teacherId===tid && x.week===week
     );
 
   const scores=row?.scores||{};
 
   return `
 
+    ${renderTeacherEvaluationHistory(tid)}
+
     <form
-      onsubmit="saveTeacherEvaluation(event,'${tid}')"
+      onsubmit="saveTeacherEvaluation(event,'${tid}',${week})"
       class="eval-grid">
 
       ${TEACHER_CRITERIA.map(c=>`
@@ -1510,14 +1598,17 @@ function renderTeacherEvaluationEditor(tid){
   `;
 }
 
-async function saveTeacherEvaluation(e,tid){
+async function saveTeacherEvaluation(e,tid,week){
 
   e.preventDefault();
 
   const f=new FormData(e.target);
 
+  const w=Number(week)||1;
+
   const payload={
     teacher_id:tid,
+    week:w,
     note:f.get('note')||''
   };
 
@@ -1531,7 +1622,7 @@ async function saveTeacherEvaluation(e,tid){
 
     const existing=
       DATA.teacherEvaluations.find(
-        x=>x.teacherId===tid
+        x=>x.teacherId===tid && x.week===w
       );
 
     let row;
@@ -1564,14 +1655,14 @@ async function saveTeacherEvaluation(e,tid){
 
     DATA.teacherEvaluations=
       DATA.teacherEvaluations.filter(
-        x=>x.teacherId!==tid
+        x=>!(x.teacherId===tid && x.week===w)
       );
 
     DATA.teacherEvaluations.push(
       mapped
     );
 
-    toast('تم حفظ تقييم المعلم');
+    toast(`تم حفظ تقييم الأسبوع ${w}`);
 
     renderAdmin();
 
@@ -1942,10 +2033,27 @@ async function deleteStudent(id){
 
 function renderAdminEvals(){
 
+  const ranked=getBestStudents();
+
+  const rankedIds=
+    new Set(ranked.map(x=>x.student.id));
+
+  const unevaluated=
+    DATA.students.filter(
+      s=>!rankedIds.has(s.id)
+    );
+
   return panel(
     'تقييم الطلاب',
 
     `
+    <div class="notice">
+
+      الترتيب تلقائي بناءً على متوسط تقييمات
+      المعلم للطالب عبر كل أسابيع الدورة.
+
+    </div>
+
     <div class="table-wrap">
 
       <table>
@@ -1954,11 +2062,12 @@ function renderAdminEvals(){
 
           <tr>
 
+            <th>#</th>
             <th>الطالب</th>
             <th>القاعة</th>
             <th>المعلم</th>
-            <th>المتوسط</th>
-            <th>التفاصيل</th>
+            <th>عدد الأسابيع المقيَّمة</th>
+            <th>المتوسط العام</th>
 
           </tr>
 
@@ -1966,19 +2075,60 @@ function renderAdminEvals(){
 
         <tbody>
 
-          ${DATA.students.map(s=>{
+          ${ranked.map((x,i)=>{
 
-            const e=
-              DATA.evaluations.find(
-                x=>x.studentId===s.id
-              );
+            const r=getRoom(x.student.roomId);
 
-            const r=
-              getRoom(s.roomId);
+            const weeksCount=
+              DATA.evaluations.filter(
+                e=>e.studentId===x.student.id
+              ).length;
 
             return `
 
               <tr>
+
+                <td>${i+1}</td>
+
+                <td>
+                  ${esc(x.student.name)}
+                </td>
+
+                <td>
+                  ${esc(r?.name||'-')}
+                </td>
+
+                <td>
+                  ${esc(
+                    getTeacher(r?.teacherId)?.name||'-'
+                  )}
+                </td>
+
+                <td>
+                  ${weeksCount}
+                </td>
+
+                <td>
+                  <b class="${scoreClass(x.average)}">
+                    ${x.average}%
+                  </b>
+                </td>
+
+              </tr>
+
+            `;
+
+          }).join('')}
+
+          ${unevaluated.map(s=>{
+
+            const r=getRoom(s.roomId);
+
+            return `
+
+              <tr>
+
+                <td>-</td>
 
                 <td>
                   ${esc(s.name)}
@@ -1990,45 +2140,13 @@ function renderAdminEvals(){
 
                 <td>
                   ${esc(
-                    getTeacher(
-                      r?.teacherId
-                    )?.name||'-'
+                    getTeacher(r?.teacherId)?.name||'-'
                   )}
                 </td>
 
-                <td>
+                <td>0</td>
 
-                  ${
-                    e
-                      ? `
-                        <b class="${scoreClass(
-                          avgScores(
-                            e.scores,
-                            CRITERIA
-                          )
-                        )}">
-                          ${avgScores(
-                            e.scores,
-                            CRITERIA
-                          )}%
-                        </b>
-                      `
-                      : '-'
-                  }
-
-                </td>
-
-                <td>
-
-                  ${
-                    e
-                      ? CRITERIA.map(c=>
-                          `${c.label}: ${e.scores[c.key]}`
-                        ).join(' | ')
-                      : 'لا يوجد'
-                  }
-
-                </td>
+                <td>غير مقيَّم</td>
 
               </tr>
 
@@ -2361,17 +2479,20 @@ function renderAdminChampion(){
     'الطلاب المتميزون',
 
     `
+    <div class="notice">
+
+      يتحدد الطالب المتميز في كل قاعة تلقائيًا
+      حسب متوسط تقييمات المعلم له خلال أسابيع
+      الدورة — بدون أي اختيار يدوي.
+
+    </div>
+
     <div class="form-grid">
 
       ${DATA.rooms.map(room=>{
 
-        const students=
-          DATA.students.filter(
-            s=>s.roomId===room.id
-          );
-
-        const selected=
-          DATA.champions[room.id];
+        const best=
+          getBestStudents(room.id)[0];
 
         return `
 
@@ -2381,55 +2502,20 @@ function renderAdminChampion(){
               ${esc(room.name)}
             </h3>
 
-            <label>
-              الطالب المتميز
-            </label>
-
-            <select
-              id="champion-${room.id}"
-              class="input">
-
-              <option value="">
-                لم يتم الاختيار
-              </option>
-
-              ${students.map(s=>`
-
-                <option
-                  value="${s.id}"
-                  ${
-                    selected===s.id
-                    ?'selected'
-                    :''
-                  }>
-
-                  ${esc(s.name)}
-
-                </option>
-
-              `).join('')}
-
-            </select>
-
-            <button
-              class="btn primary"
-              onclick="saveChampion('${room.id}')">
-
-              حفظ الطالب المتميز
-
-            </button>
-
             ${
-              selected
+              best
               ? `
                 <div class="champion-result">
                   🏆
-                  ${esc(
-                    getStudent(selected)?.name||''
-                  )}
+                  ${esc(best.student.name)}
+                  — ${best.average}%
                 </div>
               `
-              :''
+              : `
+                <div class="empty">
+                  لا توجد تقييمات كافية بعد.
+                </div>
+              `
             }
 
           </div>
@@ -2699,49 +2785,63 @@ function exportAllExcel(){
 
 function exportStudentsExcel(){
 
-  const rows=
-    DATA.students.map(s=>{
+  const rows=[];
 
-      const e=
-        DATA.evaluations.find(
-          x=>x.studentId===s.id
-        );
+  DATA.students.forEach(s=>{
+
+    const room=getRoom(s.roomId);
+    const teacher=getTeacher(room?.teacherId);
+    const overall=getStudentAverage(s.id);
+
+    const studentEvals=
+      DATA.evaluations
+        .filter(x=>x.studentId===s.id)
+        .sort((a,b)=>a.week-b.week);
+
+    if(!studentEvals.length){
 
       const row={
-
         'الطالب':s.name,
-
         'الجوال':s.phone,
-
-        'القاعة':
-          getRoom(s.roomId)?.name||'',
-
-        'المعلم':
-          getTeacher(
-            getRoom(s.roomId)?.teacherId
-          )?.name||'',
-
-        'المتوسط':
-          e
-          ? avgScores(
-              e.scores,
-              CRITERIA
-            )
-          : '',
-
-        'الملاحظة':
-          e?.note||''
-
+        'القاعة':room?.name||'',
+        'المعلم':teacher?.name||'',
+        'الأسبوع':'',
+        'متوسط الأسبوع':'',
+        'المتوسط العام':'',
+        'الملاحظة':''
       };
 
       CRITERIA.forEach(c=>{
-        row[c.label]=
-          e?.scores?.[c.key]||'';
+        row[c.label]='';
       });
 
-      return row;
+      rows.push(row);
+
+      return;
+    }
+
+    studentEvals.forEach(e=>{
+
+      const row={
+        'الطالب':s.name,
+        'الجوال':s.phone,
+        'القاعة':room?.name||'',
+        'المعلم':teacher?.name||'',
+        'الأسبوع':e.week,
+        'متوسط الأسبوع':avgScores(e.scores,CRITERIA),
+        'المتوسط العام':overall,
+        'الملاحظة':e.note||''
+      };
+
+      CRITERIA.forEach(c=>{
+        row[c.label]=e.scores?.[c.key]||'';
+      });
+
+      rows.push(row);
 
     });
+
+  });
 
   downloadWorkbook(
     {'الطلاب':rows},
@@ -2751,54 +2851,69 @@ function exportStudentsExcel(){
 
 function exportTeachersExcel(){
 
-  const rows=
-    DATA.teachers.map(t=>{
+  const rows=[];
 
-      const e=
-        DATA.teacherEvaluations.find(
-          x=>x.teacherId===t.id
+  DATA.teachers.forEach(t=>{
+
+    const deductions=
+      DATA.teacherDeductions
+        .filter(
+          d=>d.teacherId===t.id
+        )
+        .reduce(
+          (sum,d)=>sum+Number(d.points||0),
+          0
         );
 
-      const deductions=
-        DATA.teacherDeductions
-          .filter(
-            d=>d.teacherId===t.id
-          )
-          .reduce(
-            (sum,d)=>sum+Number(d.points||0),
-            0
-          );
+    const overall=getTeacherAverage(t.id);
+
+    const teacherEvals=
+      DATA.teacherEvaluations
+        .filter(x=>x.teacherId===t.id)
+        .sort((a,b)=>a.week-b.week);
+
+    if(!teacherEvals.length){
 
       const row={
-
         'المعلم':t.name,
-
         'الجوال':t.phone,
-
-        'متوسط التقييم':
-          e
-          ? avgScores(
-              e.scores,
-              TEACHER_CRITERIA
-            )
-          : '',
-
-        'الخصومات':
-          deductions,
-
-        'الملاحظات':
-          e?.note||''
-
+        'الأسبوع':'',
+        'متوسط الأسبوع':'',
+        'المتوسط العام':'',
+        'الخصومات':deductions,
+        'الملاحظات':''
       };
 
       TEACHER_CRITERIA.forEach(c=>{
-        row[c.label]=
-          e?.scores?.[c.key]||'';
+        row[c.label]='';
       });
 
-      return row;
+      rows.push(row);
+
+      return;
+    }
+
+    teacherEvals.forEach(e=>{
+
+      const row={
+        'المعلم':t.name,
+        'الجوال':t.phone,
+        'الأسبوع':e.week,
+        'متوسط الأسبوع':avgScores(e.scores,TEACHER_CRITERIA),
+        'المتوسط العام':overall,
+        'الخصومات':deductions,
+        'الملاحظات':e.note||''
+      };
+
+      TEACHER_CRITERIA.forEach(c=>{
+        row[c.label]=e.scores?.[c.key]||'';
+      });
+
+      rows.push(row);
 
     });
+
+  });
 
   downloadWorkbook(
     {'المعلمون':rows},
@@ -3019,7 +3134,7 @@ function renderTeacherEvaluate(){
 
           <select
             class="input"
-            onchange="selectedTeacherRoomId=this.value;renderTeacher()">
+            onchange="selectedTeacherRoomId=this.value;selectedTeacherWeek=1;renderTeacher()">
 
             ${rooms.map(r=>`
 
@@ -3038,6 +3153,27 @@ function renderTeacherEvaluate(){
                   :''
                 }
 
+              </option>
+
+            `).join('')}
+
+          </select>
+
+          <label>الأسبوع</label>
+
+          <select
+            class="input"
+            onchange="selectedTeacherWeek=Number(this.value);renderTeacher()">
+
+            ${Array.from(
+              {length:(getRoom(selectedTeacherRoomId)?.durationWeeks)||24},
+              (_,i)=>i+1
+            ).map(w=>`
+
+              <option
+                value="${w}"
+                ${selectedTeacherWeek===w?'selected':''}>
+                أسبوع ${w}
               </option>
 
             `).join('')}
@@ -3087,6 +3223,8 @@ function renderTeacherRoomStudents(){
     `;
   }
 
+  const week=selectedTeacherWeek||1;
+
   return `
 
     <div class="student-evaluation-list">
@@ -3095,12 +3233,13 @@ function renderTeacherRoomStudents(){
 
         const evaluation=
           DATA.evaluations.find(
-            e=>e.studentId===student.id
+            e=>e.studentId===student.id && e.week===week
           );
 
         return renderStudentEvaluationCard(
           student,
-          evaluation
+          evaluation,
+          week
         );
 
       }).join('')}
@@ -3112,11 +3251,17 @@ function renderTeacherRoomStudents(){
 
 function renderStudentEvaluationCard(
   student,
-  evaluation
+  evaluation,
+  week
 ){
 
   const scores=
     evaluation?.scores||{};
+
+  const history=
+    DATA.evaluations
+      .filter(e=>e.studentId===student.id)
+      .sort((a,b)=>a.week-b.week);
 
   return `
 
@@ -3147,6 +3292,7 @@ function renderStudentEvaluationCard(
           ? `
             <span class="score-badge">
 
+              أسبوع ${week}:
               ${avgScores(
                 scores,
                 CRITERIA
@@ -3159,8 +3305,21 @@ function renderStudentEvaluationCard(
 
       </div>
 
+      ${
+        history.length
+        ? `
+          <small class="hint" style="display:block;text-align:right;margin-bottom:10px;">
+            سجل الأسابيع:
+            ${history.map(h=>
+              `أسبوع ${h.week}: ${avgScores(h.scores,CRITERIA)}%`
+            ).join(' | ')}
+          </small>
+        `
+        :''
+      }
+
       <form
-        onsubmit="saveStudentEvaluation(event,'${student.id}')">
+        onsubmit="saveStudentEvaluation(event,'${student.id}',${week})">
 
         <div class="eval-grid">
 
@@ -3218,7 +3377,7 @@ function renderStudentEvaluationCard(
         <button
           class="btn primary">
 
-          حفظ تقييم ${esc(student.name)}
+          حفظ تقييم أسبوع ${week} — ${esc(student.name)}
 
         </button>
 
@@ -3231,7 +3390,8 @@ function renderStudentEvaluationCard(
 
 async function saveStudentEvaluation(
   e,
-  studentId
+  studentId,
+  week
 ){
 
   e.preventDefault();
@@ -3254,6 +3414,8 @@ async function saveStudentEvaluation(
     return;
   }
 
+  const w=Number(week)||1;
+
   const f=new FormData(e.target);
 
   const payload={
@@ -3263,6 +3425,8 @@ async function saveStudentEvaluation(
     teacher_id:currentTeacherId,
 
     room_id:room.id,
+
+    week:w,
 
     note:f.get('note')||''
 
@@ -3276,32 +3440,51 @@ async function saveStudentEvaluation(
 
   try{
 
-    const row=await sb(
+    const existing=
+      DATA.evaluations.find(
+        x=>x.studentId===studentId && x.week===w
+      );
 
-      db()
-      .from('evaluations')
-      .upsert(
-        payload,
-        {
-          onConflict:'student_id'
-        }
-      )
-      .select()
-      .single()
+    let row;
 
-    );
+    if(existing){
+
+      row=await sb(
+
+        db()
+        .from('evaluations')
+        .update(payload)
+        .eq('id',existing.id)
+        .select()
+        .single()
+
+      );
+
+    }else{
+
+      row=await sb(
+
+        db()
+        .from('evaluations')
+        .insert(payload)
+        .select()
+        .single()
+
+      );
+
+    }
 
     const mapped=
       mapEval(row);
 
     DATA.evaluations=
       DATA.evaluations.filter(
-        x=>x.studentId!==studentId
+        x=>!(x.studentId===studentId && x.week===w)
       );
 
     DATA.evaluations.push(mapped);
 
-    toast('تم حفظ تقييم الطالب');
+    toast(`تم حفظ تقييم الأسبوع ${w}`);
 
     renderTeacher();
 
@@ -4000,36 +4183,40 @@ async function teacherChangePassword(e){
 
 function getStudentAverage(studentId){
 
-  const e=
-    DATA.evaluations.find(
+  const rows=
+    DATA.evaluations.filter(
       x=>x.studentId===studentId
     );
 
-  if(!e){
+  if(!rows.length){
     return 0;
   }
 
-  return avgScores(
-    e.scores,
-    CRITERIA
+  const total=rows.reduce(
+    (sum,e)=>sum+avgScores(e.scores,CRITERIA),
+    0
   );
+
+  return Math.round(total/rows.length);
 }
 
 function getTeacherAverage(teacherId){
 
-  const e=
-    DATA.teacherEvaluations.find(
+  const rows=
+    DATA.teacherEvaluations.filter(
       x=>x.teacherId===teacherId
     );
 
-  if(!e){
+  if(!rows.length){
     return 0;
   }
 
-  return avgScores(
-    e.scores,
-    TEACHER_CRITERIA
+  const total=rows.reduce(
+    (sum,e)=>sum+avgScores(e.scores,TEACHER_CRITERIA),
+    0
   );
+
+  return Math.round(total/rows.length);
 }
 
 function getTeacherDeductionTotal(teacherId){
@@ -4448,6 +4635,8 @@ function selectTeacherRoom(id){
   }
 
   selectedTeacherRoomId=id;
+
+  selectedTeacherWeek=1;
 
   teacherTab='evaluate';
 
