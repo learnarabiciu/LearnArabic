@@ -223,8 +223,22 @@ function mapTeacher(r){
     name:r.name,
     phone:r.phone||'',
     userId:r.user_id||'',
+    loginCode:r.login_code||'',
     lastSeenAnnounce:r.last_seen_announce||null
   };
+}
+
+function genTeacherCode(){
+
+  const chars='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+
+  let code='';
+
+  for(let i=0;i<5;i++){
+    code+=chars[Math.floor(Math.random()*chars.length)];
+  }
+
+  return code;
 }
 
 function mapRoom(r){
@@ -380,6 +394,7 @@ async function loadData(){
   DATA.teachers=(teachers||[]).map(mapTeacher);
   DATA.rooms=(rooms||[]).map(mapRoom);
   DATA.students=(students||[]).map(mapStudent);
+  sortStudents();
   DATA.evaluations=(evaluations||[]).map(mapEval);
   DATA.reports=(reports||[]).map(mapReport);
   DATA.announcements=(announcements||[]).map(mapAnnouncement);
@@ -412,103 +427,119 @@ function setupLoginUI(){
 
   if(!role) return;
 
-  const card=role.querySelector('.card')||role;
+  populateTeacherSelect();
+}
 
-  const title=card.querySelector('h2');
-
-  if(title){
-    title.textContent='تسجيل الدخول';
-  }
-
-  const pw=$('adminPwInput');
-
-  if(pw){
-
-    const oldLabel=pw.previousElementSibling;
-
-    if(oldLabel){
-      oldLabel.textContent='كلمة المرور';
-    }
-
-    pw.id='authPasswordInput';
-    pw.placeholder='كلمة المرور';
-    pw.autocomplete='current-password';
-  }
-
-  if(!$('authEmailInput')){
-
-    const email=document.createElement('input');
-
-    email.id='authEmailInput';
-    email.type='email';
-    email.placeholder='البريد الإلكتروني';
-    email.autocomplete='username';
-    email.className='input';
-
-    const p=$('authPasswordInput');
-
-    if(p?.parentElement){
-
-      p.parentElement.parentElement
-        ?.insertBefore(email,p.parentElement);
-
-    }else{
-
-      role.querySelector('input')?.before(email);
-
-    }
-  }
-
-  const adminBtn=
-    role.querySelector('button[onclick="adminLogin()"]');
-
-  const teacherBtn=
-    role.querySelector('button[onclick="teacherLogin()"]');
-
-  if(adminBtn){
-    adminBtn.textContent='دخول الإدارة';
-    adminBtn.onclick=()=>{
-      loginAs('admin');
-    };
-  }
-
-  if(teacherBtn){
-    teacherBtn.textContent='دخول المعلم/ـة';
-    teacherBtn.onclick=()=>{
-      loginAs('teacher');
-    };
-  }
+async function populateTeacherSelect(){
 
   const sel=$('teacherSelect');
 
-  if(sel){
+  if(!sel) return;
 
-    sel.style.display='none';
+  sel.innerHTML=
+    '<option value="">جاري تحميل الأسماء...</option>';
 
-    const label=sel.previousElementSibling;
+  try{
 
-    if(label){
-      label.style.display='none';
-    }
-  }
+    const rows=await sb(
+      db()
+      .from('teachers')
+      .select('id,name')
+      .order('name',{ascending:true})
+    );
 
-  const hint=$('adminHint');
+    sel.innerHTML=
+      '<option value="">اختر اسمك...</option>'+
+      (rows||[]).map(t=>`
+        <option value="${t.id}">${esc(t.name)}</option>
+      `).join('');
 
-  if(hint){
-    hint.textContent=
-      'استخدم البريد الإلكتروني وكلمة المرور الخاصة بحسابك.';
+  }catch(e){
+
+    sel.innerHTML=
+      '<option value="">تعذر تحميل الأسماء</option>';
   }
 }
 
-async function loginAs(expected){
+async function teacherCodeLogin(){
+
+  try{
+
+    const teacherId=
+      $('teacherSelect')?.value;
+
+    const code=
+      $('teacherCodeInput')?.value.trim();
+
+    if(!teacherId||!code){
+
+      toast(
+        'اختر اسمك وأدخل كود الدخول.',
+        true
+      );
+
+      return;
+    }
+
+    const row=await sb(
+      db()
+      .from('teachers')
+      .select('*')
+      .eq('id',teacherId)
+      .eq('login_code',code)
+      .maybeSingle()
+    );
+
+    if(!row){
+
+      toast(
+        'الكود غير صحيح.',
+        true
+      );
+
+      return;
+    }
+
+    currentUser={codeLogin:true,name:row.name};
+    currentProfile=null;
+    currentAdmin=false;
+    currentTeacherId=row.id;
+
+    try{
+      localStorage.setItem('saqifah:teacherSession',row.id);
+    }catch{}
+
+    await loadData();
+
+    selectedTeacherRoomId=
+      teacherRooms()[0]?.id||null;
+
+    teacherTab='evaluate';
+
+    showScreen('screen-teacher');
+
+    renderTeacher();
+
+    toast('تم تسجيل الدخول بنجاح');
+
+  }catch(e){
+
+    toast(
+      friendlyError(e),
+      true
+    );
+  }
+}
+
+async function adminLogin(){
 
   try{
 
     const email=
-      $('authEmailInput')?.value.trim();
+      $('adminEmailInput')?.value.trim();
 
     const password=
-      $('authPasswordInput')?.value;
+      $('adminPwInput')?.value;
 
     if(!email||!password){
 
@@ -530,7 +561,6 @@ async function loginAs(expected){
     await loadSessionProfile();
 
     if(
-      expected==='admin' &&
       currentProfile?.role!=='admin'
     ){
 
@@ -545,60 +575,16 @@ async function loginAs(expected){
       return;
     }
 
-    if(
-      expected==='teacher' &&
-      currentProfile?.role!=='teacher'
-    ){
-
-      await db().auth.signOut();
-      resetSession();
-
-      toast(
-        'هذا الحساب ليس حساب معلم.',
-        true
-      );
-
-      return;
-    }
-
     await loadData();
 
-    if(currentProfile.role==='admin'){
+    currentAdmin=true;
+    adminTab='rooms';
 
-      currentAdmin=true;
+    showScreen('screen-admin');
 
-      showScreen('screen-admin');
+    renderAdmin();
 
-      renderAdmin();
-
-    }else{
-
-      currentAdmin=false;
-
-      currentTeacherId=
-        currentProfile.teacher_id;
-
-      if(!currentTeacherId){
-
-        await db().auth.signOut();
-
-        resetSession();
-
-        toast(
-          'لم يتم ربط حساب المعلم بسجل المعلم.',
-          true
-        );
-
-        return;
-      }
-
-      selectedTeacherRoomId=
-        teacherRooms()[0]?.id||null;
-
-      showScreen('screen-teacher');
-
-      renderTeacher();
-    }
+    toast('مرحبًا بك في لوحة الإدارة');
 
   }catch(e){
 
@@ -644,18 +630,21 @@ function resetSession(){
 
 }
 
-async function adminLogin(){
-  return loginAs('admin');
-}
-
-async function teacherLogin(){
-  return loginAs('teacher');
-}
-
 async function logout(){
 
   try{
-    await db().auth.signOut();
+
+    if(currentUser?.codeLogin){
+
+      localStorage.removeItem(
+        'saqifah:teacherSession'
+      );
+
+    }else{
+
+      await db().auth.signOut();
+    }
+
   }catch{}
 
   resetSession();
@@ -682,6 +671,7 @@ function renderHeaderActions(){
       <span class="user-chip">
         ${esc(
           currentProfile?.full_name||
+          currentUser.name||
           currentUser.email
         )}
       </span>
@@ -1120,10 +1110,11 @@ function renderAdminTeachers(){
     `
     <div class="notice">
 
-      إنشاء حساب الدخول للمعلم يتم من
-      Supabase Auth، ثم يُربط بحقل
-      user_id في سجل المعلم وteacher_id
-      في profiles.
+      عند إضافة معلم جديد يتم توليد كود دخول
+      خاص به تلقائيًا. أعطِ المعلم اسمه (كما
+      سيظهر في القائمة) والكود، ويستخدمهما
+      للدخول من الصفحة الرئيسية بدون بريد
+      إلكتروني أو كلمة مرور.
 
     </div>
 
@@ -1141,11 +1132,6 @@ function renderAdminTeachers(){
         id="teacherPhone"
         class="input"
         placeholder="رقم الجوال">
-
-      <input
-        id="teacherUserId"
-        class="input"
-        placeholder="User ID (اختياري)">
 
       <button
         class="btn primary">
@@ -1166,7 +1152,7 @@ function renderAdminTeachers(){
 
             <th>الاسم</th>
             <th>الجوال</th>
-            <th>User ID</th>
+            <th>كود الدخول</th>
             <th>القاعات</th>
             <th></th>
 
@@ -1189,7 +1175,7 @@ function renderAdminTeachers(){
               </td>
 
               <td class="ltr">
-                ${esc(t.userId||'-')}
+                <strong>${esc(t.loginCode||'-')}</strong>
               </td>
 
               <td>
@@ -1203,7 +1189,15 @@ function renderAdminTeachers(){
 
               </td>
 
-              <td>
+              <td style="display:flex;gap:6px;">
+
+                <button
+                  class="btn ghost small"
+                  onclick="regenerateTeacherCode('${t.id}')">
+
+                  كود جديد
+
+                </button>
 
                 <button
                   class="btn danger small"
@@ -1246,8 +1240,7 @@ async function addTeacher(e){
         phone:
           $('teacherPhone').value.trim(),
 
-        user_id:
-          $('teacherUserId').value.trim()||null
+        login_code:genTeacherCode()
 
       })
       .select()
@@ -1259,7 +1252,53 @@ async function addTeacher(e){
       mapTeacher(row)
     );
 
-    toast('تمت إضافة المعلم');
+    toast(
+      `تمت إضافة المعلم — كود الدخول: ${row.login_code}`
+    );
+
+    renderAdmin();
+
+  }catch(x){
+
+    toast(
+      friendlyError(x),
+      true
+    );
+  }
+}
+
+async function regenerateTeacherCode(id){
+
+  if(!confirm(
+    'توليد كود دخول جديد لهذا المعلم؟ سيتوقف الكود القديم عن العمل فورًا.'
+  )){
+    return;
+  }
+
+  try{
+
+    const newCode=genTeacherCode();
+
+    const row=await sb(
+
+      db()
+      .from('teachers')
+      .update({login_code:newCode})
+      .eq('id',id)
+      .select()
+      .single()
+
+    );
+
+    const t=getTeacher(id);
+
+    if(t){
+      t.loginCode=row.login_code;
+    }
+
+    toast(
+      `الكود الجديد: ${row.login_code}`
+    );
 
     renderAdmin();
 
@@ -1597,6 +1636,56 @@ function renderAdminStudents(){
 
     </form>
 
+    <hr>
+
+    <div class="notice">
+
+      إضافة عدة طلاب دفعة واحدة: اكتب اسم كل
+      طالب في سطر مستقل، ويمكنك إضافة رقم
+      الجوال بعد فاصلة (اختياري). مثال:
+      <br>أحمد الشمري, 0555555555
+      <br>خالد العتيبي
+
+    </div>
+
+    <form
+      onsubmit="addStudentsBulk(event)"
+      class="form-grid">
+
+      <textarea
+        id="bulkStudentsText"
+        class="input"
+        rows="6"
+        placeholder="اسم الطالب, رقم الجوال (اختياري)"
+        required></textarea>
+
+      <select
+        id="bulkStudentRoom"
+        class="input">
+
+        <option value="">
+          بدون قاعة
+        </option>
+
+        ${DATA.rooms.map(r=>`
+
+          <option value="${r.id}">
+            ${esc(r.name)}
+          </option>
+
+        `).join('')}
+
+      </select>
+
+      <button
+        class="btn secondary">
+
+        إضافة القائمة
+
+      </button>
+
+    </form>
+
     <div class="table-wrap">
 
       <table>
@@ -1709,7 +1798,98 @@ async function addStudent(e){
       mapStudent(row)
     );
 
+    sortStudents();
+
     toast('تمت إضافة الطالب');
+
+    renderAdmin();
+
+  }catch(x){
+
+    toast(
+      friendlyError(x),
+      true
+    );
+  }
+}
+
+function sortStudents(){
+
+  DATA.students.sort((a,b)=>
+    a.name.localeCompare(b.name,'ar')
+  );
+}
+
+async function addStudentsBulk(e){
+
+  e.preventDefault();
+
+  try{
+
+    const raw=
+      $('bulkStudentsText').value;
+
+    const roomId=
+      $('bulkStudentRoom').value||null;
+
+    const lines=raw
+      .split('\n')
+      .map(l=>l.trim())
+      .filter(l=>l.length);
+
+    if(!lines.length){
+
+      toast(
+        'أدخل اسمًا واحدًا على الأقل.',
+        true
+      );
+
+      return;
+    }
+
+    const payload=lines.map(line=>{
+
+      const [namePart,phonePart]=
+        line.split(',');
+
+      return {
+        name:(namePart||'').trim(),
+        phone:(phonePart||'').trim(),
+        room_id:roomId
+      };
+
+    }).filter(s=>s.name);
+
+    if(!payload.length){
+
+      toast(
+        'لم يتم العثور على أسماء صالحة.',
+        true
+      );
+
+      return;
+    }
+
+    const rows=await sb(
+
+      db()
+      .from('students')
+      .insert(payload)
+      .select()
+
+    );
+
+    (rows||[]).forEach(r=>{
+      DATA.students.push(mapStudent(r));
+    });
+
+    sortStudents();
+
+    $('bulkStudentsText').value='';
+
+    toast(
+      `تمت إضافة ${(rows||[]).length} طالب/طالبة`
+    );
 
     renderAdmin();
 
@@ -4397,6 +4577,52 @@ async function boot(){
 
     if(!session){
 
+      let savedTeacherId=null;
+
+      try{
+        savedTeacherId=
+          localStorage.getItem('saqifah:teacherSession');
+      }catch{}
+
+      if(savedTeacherId){
+
+        try{
+
+          await loadData();
+
+          const t=getTeacher(savedTeacherId);
+
+          if(t){
+
+            currentUser={codeLogin:true,name:t.name};
+            currentAdmin=false;
+            currentTeacherId=t.id;
+
+            selectedTeacherRoomId=
+              teacherRooms()[0]?.id||null;
+
+            teacherTab='evaluate';
+
+            showScreen('screen-teacher');
+
+            renderTeacher();
+
+            return;
+          }
+
+        }catch(e){
+
+          console.warn(
+            'تعذر استعادة جلسة المعلم:',
+            e
+          );
+        }
+
+        try{
+          localStorage.removeItem('saqifah:teacherSession');
+        }catch{}
+      }
+
       showScreen(
         'screen-role'
       );
@@ -4521,23 +4747,6 @@ async function boot(){
       'screen-role'
     );
   }
-}
-
-/* =========================================================
-   إصلاحات توافق مع الواجهة القديمة
-   ========================================================= */
-
-function populateTeacherSelect(){
-
-  const sel=
-    $('teacherSelect');
-
-  if(!sel) return;
-
-  sel.innerHTML=
-    '<option value="">استخدم البريد الإلكتروني لتسجيل الدخول</option>';
-
-  sel.style.display='none';
 }
 
 function saveData(){
