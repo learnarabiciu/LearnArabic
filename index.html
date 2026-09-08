@@ -1,178 +1,114 @@
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>منصة تعلم العربية - السقيفة</title>
-  <!-- مكتبة تصدير Excel -->
-  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>منصة السقيفة لتقييم الطلاب</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@300;400;500;700;800;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
 
+<!-- ربط Supabase -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
   const SUPABASE_URL = 'https://mresinrhhzmrialcqjyr.supabase.co';
-
   const SUPABASE_KEY = 'sb_publishable_R92kgFxPudlmAsiDYu2vow_3CLortUp';
-
   const supabaseClient = window.supabase.createClient(
     SUPABASE_URL,
     SUPABASE_KEY
   );
 </script>
-  <style>
-    :root {
-      --bg: #f8f6f0;
-      --card: #ffffff;
-      --text: #131315;
-      --primary: #fd4f16;
-      --purple: #4a3fd7;
-      --line: #e2dfd5;
-      --gray: #71717a;
-    }
-    * { box-sizing: border-box; }
-    body {
-      font-family: Arial, sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      margin: 0;
-      padding: 0;
-      direction: rtl;
-    }
-    header {
-      background: var(--text);
-      color: #fff;
-      padding: 15px 25px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      border-bottom: 3px solid var(--primary);
-    }
-    header h1 { margin: 0; font-size: 20px; color: var(--primary); }
-    .header-actions { display: flex; align-items: center; gap: 12px; }
-    .container { max-width: 1200px; margin: 30px auto; padding: 0 20px; }
-    .screen { display: none; }
-    .screen.active { display: block; }
-    .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 25px; margin-bottom: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.03); }
-    h2 { margin-top: 0; color: var(--text); font-size: 22px; }
-    p.lead { color: var(--gray); font-size: 14px; margin-bottom: 20px; line-height: 1.6; }
-    .btn { background: var(--primary); color: #fff; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 14px; transition: 0.2s; }
-    .btn:hover { opacity: 0.9; }
-    .btn.ghost { background: transparent; border: 1px solid var(--line); color: var(--text); }
-    .btn.sm { padding: 6px 12px; font-size: 12px; }
-    .field { margin-bottom: 15px; }
-    .field label { display: block; margin-bottom: 6px; font-weight: bold; font-size: 13.5px; }
-    .field input, .field select, .field textarea { width: 100%; padding: 10px; border: 1px solid var(--line); border-radius: 8px; font-family: Arial; font-size: 14px; background: #fff; }
-    .field textarea { resize: vertical; min-height: 90px; }
-    .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
-    .row3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px; }
-    table { width: 100%; border-collapse: collapse; margin-top: 15px; }
-    th, td { padding: 12px; border-bottom: 1px solid var(--line); text-align: right; font-size: 14px; }
-    th { color: var(--gray); font-size: 13px; background: #faf9f5; }
-    .tag { background: #f2f1ea; color: var(--text); padding: 4px 10px; border-radius: 6px; font-size: 12px; font-weight: bold; display: inline-block; }
-    .tag.orange { background: #feebe4; color: var(--primary); }
-    .icon-btn { background: none; border: none; color: var(--gray); cursor: pointer; font-size: 14px; padding: 4px 8px; }
-    .icon-btn:hover { color: #c0392b; }
-    .pill { background: #feebe4; color: var(--primary); padding: 4px 12px; border-radius: 20px; font-size: 13px; font-weight: bold; }
-    .logout-btn { background: #fdeeee; color: #c0392b; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: bold; }
-    .toast-wrap { position: fixed; bottom: 20px; left: 20px; z-index: 9999; display: flex; flex-direction: column; gap: 10px; }
-    .toast { background: var(--text); color: #fff; padding: 12px 20px; border-radius: 8px; font-size: 14px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); animation: fadeIn 0.3s ease; }
-    .toast.err { background: #c0392b; }
-    @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-    .layout { display: grid; grid-template-columns: 240px 1fr; gap: 20px; }
-    .sidebar { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 15px; height: fit-content; }
-    .side-btn { display: flex; align-items: center; gap: 10px; width: 100%; padding: 12px 15px; background: none; border: none; text-align: right; border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 13.5px; color: var(--text); margin-bottom: 5px; }
-    .side-btn:hover { background: var(--bg); }
-    .side-btn.active { background: var(--text); color: #fff; }
-    .side-btn .ic { font-size: 16px; }
-    .empty { color: var(--gray); text-align: center; padding: 35px; font-style: italic; font-size: 14px; }
-    .stars { display: inline-flex; gap: 4px; font-size: 18px; color: #d1d1d6; }
-    .star.filled { color: #f59e0b; }
-    .star.clickable { cursor: pointer; transition: 0.1s; }
-    .star.clickable:hover { transform: scale(1.2); }
-    .student-card { border: 1px solid var(--line); border-radius: 10px; margin-bottom: 12px; background: #fff; overflow: hidden; }
-    .student-head { padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; background: #faf9f5; }
-    .student-head:hover { background: #f2f1ea; }
-    .student-name { font-weight: bold; font-size: 15px; }
-    .student-meta { font-size: 12px; color: var(--gray); margin-top: 3px; }
-    .student-body { padding: 20px; border-top: 1px solid var(--line); display: none; background: #fff; }
-    .student-body.open { display: block; }
-    .crit-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px dashed var(--line); }
-    .crit-label { font-size: 13.5px; font-weight: bold; }
-    .avg-badge { background: #fef3c7; color: #b45309; padding: 6px 12px; border-radius: 8px; font-weight: bold; font-size: 13px; }
-    .tabbar { display: flex; gap: 10px; margin-bottom: 20px; border-bottom: 1px solid var(--line); padding-bottom: 10px; overflow-x: auto; }
-    .tabbar button { background: var(--card); border: 1px solid var(--line); padding: 8px 16px; border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 13px; white-space: nowrap; }
-    .tabbar button.active { background: var(--primary); color: #fff; border-color: var(--primary); }
-    .announce-item { background: #fffdf4; border: 1px solid #fef08a; padding: 15px; border-radius: 8px; margin-bottom: 12px; font-size: 14px; line-height: 1.6; }
-    .announce-item .d { font-size: 11px; color: var(--gray); margin-bottom: 6px; }
-    .medal { width: 28px; height: 28px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-weight: bold; font-size: 12px; color: #fff; }
-    .medal.gold { background: #f59e0b; }
-    .medal.silver { background: #94a3b8; }
-    .medal.bronze { background: #b45309; }
-    .medal.n { background: var(--gray); }
-    .rank-item { display: flex; align-items: center; gap: 15px; padding: 12px; border-bottom: 1px solid var(--line); }
-    .champ-star { color: #f59e0b; font-weight: bold; }
-    .stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-bottom: 20px; }
-    .stat-box { background: var(--card); border: 1px solid var(--line); padding: 20px; border-radius: 12px; text-align: center; }
-    .stat-box b { display: block; font-size: 26px; color: var(--purple); margin-bottom: 5px; }
-    .stat-box.orange b { color: var(--primary); }
-    .stat-box span { font-size: 13px; color: var(--gray); }
-    @media(max-width: 768px){ .layout { grid-template-columns: 1fr; } .row2, .row3 { grid-template-columns: 1fr; } }
-  </style>
 </head>
 <body>
 
-  <header>
-    <h1>منصة تعلم العربية — السقيفة</h1>
-    <div id="headerActions" class="header-actions"></div>
-  </header>
-
-  <div class="container">
-    <!-- شاشة تسجيل الدخول واختيار الدور -->
-    <div id="screen-role" class="screen active">
-      <div style="max-width: 420px; margin: 40px auto; text-align: center;">
-        <div class="card" style="padding: 35px;">
-          <h2 style="margin-bottom: 8px;">مرحباً بك</h2>
-          <p class="lead">اختر صففتك للدخول المباشر إلى المنصة:</p>
-          
-          <div style="margin-bottom: 25px; text-align: right;">
-            <label style="font-size: 13.5px; font-weight: bold; margin-bottom: 6px; display: block;">كلمة مرور الإدارة</label>
-            <div class="field" style="margin-bottom: 8px;"><input type="password" id="adminPwInput" placeholder="••••••••"></div>
-            <button class="btn" style="width: 100%;" onclick="adminLogin()">دخول لوحة الإدارة</button>
-            <div id="adminHint" style="font-size: 12.5px; margin-top: 6px; text-align: center;"></div>
-          </div>
-
-          <hr style="border: 0; border-top: 1px solid var(--line); margin: 20px 0;">
-
-          <div style="text-align: right;">
-            <label style="font-size: 13.5px; font-weight: bold; margin-bottom: 6px; display: block;">اختر اسم المعلم / المعلمة</label>
-            <div class="field" style="margin-bottom: 8px;">
-              <select id="teacherSelect"><option value="">جاري تحميل الأسماء...</option></select>
-            </div>
-            <button class="btn ghost" style="width: 100%;" onclick="teacherLogin()">دخول المعلم/ـة</button>
-          </div>
-        </div>
-      </div>
+<header class="app-header">
+  <div class="brand">
+    <img src="assets/Arabic_logo.png" alt="شعار البرنامج">
+    <div class="brand-div"></div>
+    <img src="assets/logo-saqifah.png" alt="شعار السقيفة">
+    <div class="brand-text">
+      <b>منصة تقييم الطلاب</b>
+      <span>برنامج تعلم العربية &middot; السقيفة</span>
     </div>
+  </div>
+  <div class="header-actions" id="headerActions"></div>
+</header>
 
-    <!-- شاشة الإدارة -->
-    <div id="screen-admin" class="screen">
-      <div class="layout">
-        <div class="sidebar" id="adminNav"></div>
-        <div class="card" id="adminMain" style="margin-bottom:0; min-height: 500px;"></div>
+<!-- ROLE SELECT -->
+<section id="screen-role" class="screen active">
+  <div class="hero">
+    <h1>أهلاً بك</h1>
+    <p>منصة يقيّم من خلالها المعلمون والمعلمات طلابهم أولاً بأول، وتشرف عليها الإدارة بشكل كامل، لتكريم أفضل طالب في نهاية كل دورة.</p>
+    <div class="role-grid">
+      <div class="role-card">
+        <div class="role-icon">🛠️</div>
+        <h3>دخول الإدارة</h3>
+        <p>إضافة القاعات والمعلمين والمعلمات والطلاب، ومتابعة جميع التقييمات والتقارير.</p>
+        <button onclick="showScreen('screen-admin-login')">دخول كإدارة</button>
       </div>
-    </div>
-
-    <!-- شاشة المعلم -->
-    <div id="screen-teacher" class="screen">
-      <div class="layout">
-        <div class="sidebar" id="teacherNav"></div>
-        <div class="card" id="teacherMain" style="margin-bottom:0; min-height: 500px;"></div>
+      <div class="role-card teacher">
+        <div class="role-icon">🧑‍🏫</div>
+        <h3>دخول المعلم/ـة</h3>
+        <p>اختيار القاعة، تقييم الطلاب، ورفع التقرير الأسبوعي.</p>
+        <button onclick="showScreen('screen-teacher-login')">دخول كمعلم/ـة</button>
       </div>
     </div>
   </div>
+</section>
 
-  <div id="toastWrap" class="toast-wrap"></div>
+<!-- ADMIN LOGIN -->
+<section id="screen-admin-login" class="screen">
+  <div class="login-wrap">
+    <div class="login-card">
+      <a class="back-link" onclick="showScreen('screen-role')">→ رجوع</a>
+      <h2>دخول الإدارة</h2>
+      <p class="sub">أدخل كلمة المرور الخاصة بلوحة الإدارة</p>
+      <div class="field">
+        <label>كلمة المرور</label>
+        <input type="password" id="adminPwInput" placeholder="••••••••">
+      </div>
+      <button class="btn block" onclick="adminLogin()">دخول</button>
+      <p class="hint" id="adminHint"></p>
+    </div>
+  </div>
+</section>
 
-  <!-- ملف البرمجة الرئيسي -->
-  <script src="script.js"></script>
+<!-- TEACHER LOGIN -->
+<section id="screen-teacher-login" class="screen">
+  <div class="login-wrap">
+    <div class="login-card">
+      <a class="back-link" onclick="showScreen('screen-role')">→ رجوع</a>
+      <h2>دخول المعلم/ـة</h2>
+      <p class="sub">اختر اسمك من القائمة (الأسماء تُضاف من قِبل الإدارة)</p>
+      <div class="field">
+        <label>اسم المعلم/ـة</label>
+        <select id="teacherSelect"></select>
+      </div>
+      <button class="btn orange block" onclick="teacherLogin()">دخول</button>
+      <p class="hint" id="teacherHint"></p>
+    </div>
+  </div>
+</section>
+
+<!-- ADMIN DASHBOARD -->
+<section id="screen-admin" class="screen">
+  <div class="dash">
+    <nav class="sidebar" id="adminNav"></nav>
+    <div class="main" id="adminMain"></div>
+  </div>
+</section>
+
+<!-- TEACHER DASHBOARD -->
+<section id="screen-teacher" class="screen">
+  <div class="dash">
+    <nav class="sidebar" id="teacherNav"></nav>
+    <div class="main" id="teacherMain"></div>
+  </div>
+</section>
+
+<div class="toast-wrap" id="toastWrap"></div>
+
+<script src="script.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 </body>
 </html>
