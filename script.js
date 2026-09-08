@@ -3486,3 +3486,1109 @@ function compressImage(file){
     }
   );
 }
+/* =========================================================
+   الإعلانات - المعلم
+   ========================================================= */
+
+function renderTeacherAnnouncements(){
+
+  const announcements=
+    DATA.announcements||[];
+
+  const teacher=
+    getTeacher(currentTeacherId);
+
+  return panel(
+
+    'الإعلانات',
+
+    `
+    <div class="announcement-list">
+
+      ${
+        announcements.length
+        ? announcements.map(a=>`
+
+          <div class="announcement-card">
+
+            <div class="announcement-date">
+              ${fmtDate(a.date)}
+            </div>
+
+            <div class="announcement-text">
+              ${esc(a.text)}
+            </div>
+
+          </div>
+
+        `).join('')
+        : `
+          <div class="empty">
+            لا توجد إعلانات حاليًا.
+          </div>
+        `
+      }
+
+    </div>
+
+    ${
+      teacher
+      ? `
+        <button
+          class="btn secondary"
+          onclick="markAnnouncementsSeen()">
+
+          ✓ تحديد الإعلانات كمقروءة
+
+        </button>
+      `
+      :''
+    }
+    `
+  );
+}
+
+async function markAnnouncementsSeen(){
+
+  if(!currentTeacherId){
+    return;
+  }
+
+  try{
+
+    const now=new Date().toISOString();
+
+    await sb(
+
+      db()
+      .from('teachers')
+      .update({
+        last_seen_announce:now
+      })
+      .eq('id',currentTeacherId)
+
+    );
+
+    const teacher=
+      getTeacher(currentTeacherId);
+
+    if(teacher){
+      teacher.lastSeenAnnounce=now;
+    }
+
+    toast('تم تحديد الإعلانات كمقروءة');
+
+    renderTeacher();
+
+  }catch(e){
+
+    toast(
+      friendlyError(e),
+      true
+    );
+  }
+}
+
+/* =========================================================
+   إعدادات المعلم
+   ========================================================= */
+
+function renderTeacherSettings(){
+
+  const teacher=
+    getTeacher(currentTeacherId);
+
+  return panel(
+
+    'الإعدادات',
+
+    `
+    <div class="settings-section">
+
+      <h3>
+        بيانات الحساب
+      </h3>
+
+      <div class="info-list">
+
+        <div>
+          <strong>الاسم:</strong>
+          ${esc(
+            teacher?.name||
+            currentProfile?.full_name||
+            ''
+          )}
+        </div>
+
+        <div>
+          <strong>البريد:</strong>
+          ${esc(
+            currentUser?.email||
+            ''
+          )}
+        </div>
+
+        <div>
+          <strong>الجوال:</strong>
+          ${esc(
+            teacher?.phone||
+            '-'
+          )}
+        </div>
+
+      </div>
+
+    </div>
+
+    <div class="settings-section">
+
+      <h3>
+        تحديث رقم الجوال
+      </h3>
+
+      <form
+        onsubmit="updateTeacherPhone(event)"
+        class="form-grid">
+
+        <input
+          id="teacherNewPhone"
+          class="input"
+          placeholder="رقم الجوال الجديد"
+          value="${esc(teacher?.phone||'')}">
+
+        <button
+          class="btn primary">
+
+          حفظ الرقم
+
+        </button>
+
+      </form>
+
+    </div>
+
+    <div class="settings-section">
+
+      <h3>
+        تغيير كلمة المرور
+      </h3>
+
+      <form
+        onsubmit="teacherChangePassword(event)"
+        class="form-grid">
+
+        <input
+          id="teacherNewPassword"
+          type="password"
+          class="input"
+          placeholder="كلمة المرور الجديدة"
+          minlength="6"
+          required>
+
+        <input
+          id="teacherConfirmPassword"
+          type="password"
+          class="input"
+          placeholder="تأكيد كلمة المرور"
+          minlength="6"
+          required>
+
+        <button
+          class="btn primary">
+
+          تغيير كلمة المرور
+
+        </button>
+
+      </form>
+
+    </div>
+    `
+  );
+}
+
+async function updateTeacherPhone(e){
+
+  e.preventDefault();
+
+  const phone=
+    $('teacherNewPhone')?.value.trim();
+
+  if(!phone){
+
+    toast(
+      'أدخل رقم الجوال.',
+      true
+    );
+
+    return;
+  }
+
+  try{
+
+    const row=await sb(
+
+      db()
+      .from('teachers')
+      .update({
+        phone
+      })
+      .eq('id',currentTeacherId)
+      .select()
+      .single()
+
+    );
+
+    const teacher=
+      getTeacher(currentTeacherId);
+
+    if(teacher){
+      teacher.phone=row.phone||phone;
+    }
+
+    toast('تم تحديث رقم الجوال');
+
+    renderTeacher();
+
+  }catch(e){
+
+    toast(
+      friendlyError(e),
+      true
+    );
+  }
+}
+
+async function teacherChangePassword(e){
+
+  e.preventDefault();
+
+  const p1=
+    $('teacherNewPassword')?.value||'';
+
+  const p2=
+    $('teacherConfirmPassword')?.value||'';
+
+  if(p1.length<6){
+
+    toast(
+      'كلمة المرور يجب أن تكون 6 أحرف على الأقل.',
+      true
+    );
+
+    return;
+  }
+
+  if(p1!==p2){
+
+    toast(
+      'كلمتا المرور غير متطابقتين.',
+      true
+    );
+
+    return;
+  }
+
+  try{
+
+    await sb(
+      db()
+      .auth
+      .updateUser({
+        password:p1
+      })
+    );
+
+    e.target.reset();
+
+    toast(
+      'تم تغيير كلمة المرور بنجاح.'
+    );
+
+  }catch(e){
+
+    toast(
+      friendlyError(e),
+      true
+    );
+  }
+}
+
+/* =========================================================
+   إحصائيات عامة
+   ========================================================= */
+
+function getStudentAverage(studentId){
+
+  const e=
+    DATA.evaluations.find(
+      x=>x.studentId===studentId
+    );
+
+  if(!e){
+    return 0;
+  }
+
+  return avgScores(
+    e.scores,
+    CRITERIA
+  );
+}
+
+function getTeacherAverage(teacherId){
+
+  const e=
+    DATA.teacherEvaluations.find(
+      x=>x.teacherId===teacherId
+    );
+
+  if(!e){
+    return 0;
+  }
+
+  return avgScores(
+    e.scores,
+    TEACHER_CRITERIA
+  );
+}
+
+function getTeacherDeductionTotal(teacherId){
+
+  return DATA.teacherDeductions
+    .filter(
+      x=>x.teacherId===teacherId
+    )
+    .reduce(
+      (sum,x)=>
+        sum+Number(x.points||0),
+      0
+    );
+}
+
+function getFinalTeacherScore(teacherId){
+
+  const avg=
+    getTeacherAverage(teacherId);
+
+  const deductions=
+    getTeacherDeductionTotal(
+      teacherId
+    );
+
+  return Math.max(
+    0,
+    avg-deductions
+  );
+}
+
+/* =========================================================
+   خصومات المعلمين
+   ========================================================= */
+
+function renderTeacherDeductions(teacherId){
+
+  const deductions=
+    DATA.teacherDeductions.filter(
+      d=>d.teacherId===teacherId
+    );
+
+  const total=
+    getTeacherDeductionTotal(
+      teacherId
+    );
+
+  return `
+
+    <div class="deductions-box">
+
+      <h3>
+        الخصومات
+      </h3>
+
+      <form
+        onsubmit="addTeacherDeduction(event,'${teacherId}')"
+        class="form-grid">
+
+        <input
+          name="reason"
+          class="input"
+          placeholder="سبب الخصم"
+          required>
+
+        <input
+          name="amount"
+          type="number"
+          min="0"
+          step="1"
+          class="input"
+          placeholder="عدد النقاط"
+          required>
+
+        <button
+          class="btn primary">
+
+          إضافة خصم
+
+        </button>
+
+      </form>
+
+      <p>
+        إجمالي الخصومات:
+        <strong>${total}</strong>
+      </p>
+
+      ${
+        deductions.length
+        ? deductions.map(d=>`
+
+          <div class="deduction-row">
+
+            <span>
+              ${esc(d.reason)}
+            </span>
+
+            <strong>
+              -${d.points}
+            </strong>
+
+            <button
+              class="btn danger small"
+              onclick="deleteTeacherDeduction('${d.id}')">
+
+              حذف
+
+            </button>
+
+          </div>
+
+        `).join('')
+        : `
+          <div class="empty">
+            لا توجد خصومات.
+          </div>
+        `
+      }
+
+    </div>
+
+  `;
+}
+
+async function addTeacherDeduction(
+  e,
+  teacherId
+){
+
+  e.preventDefault();
+
+  const f=new FormData(e.target);
+
+  const reason=
+    String(f.get('reason')||'').trim();
+
+  const amount=
+    Number(f.get('amount')||0);
+
+  if(!reason||amount<=0){
+
+    toast(
+      'أدخل سبب الخصم وعدد النقاط.',
+      true
+    );
+
+    return;
+  }
+
+  try{
+
+    const row=await sb(
+
+      db()
+      .from('teacher_deductions')
+      .insert({
+
+        teacher_id:teacherId,
+
+        reason,
+
+        amount
+
+      })
+      .select()
+      .single()
+
+    );
+
+    DATA.teacherDeductions.unshift(
+      mapDeduction(row)
+    );
+
+    toast('تمت إضافة الخصم');
+
+    renderAdmin();
+
+  }catch(e){
+
+    toast(
+      friendlyError(e),
+      true
+    );
+  }
+}
+
+async function deleteTeacherDeduction(id){
+
+  if(!confirm('حذف الخصم؟')){
+    return;
+  }
+
+  try{
+
+    await sb(
+
+      db()
+      .from('teacher_deductions')
+      .delete()
+      .eq('id',id)
+
+    );
+
+    DATA.teacherDeductions=
+      DATA.teacherDeductions.filter(
+        x=>x.id!==id
+      );
+
+    toast('تم حذف الخصم');
+
+    renderAdmin();
+
+  }catch(e){
+
+    toast(
+      friendlyError(e),
+      true
+    );
+  }
+}
+
+/* =========================================================
+   ترتيب أفضل الطلاب
+   ========================================================= */
+
+function getBestStudents(roomId=null){
+
+  let students=
+    DATA.students.slice();
+
+  if(roomId){
+    students=
+      students.filter(
+        s=>s.roomId===roomId
+      );
+  }
+
+  return students
+    .map(s=>({
+
+      student:s,
+
+      average:
+        getStudentAverage(s.id)
+
+    }))
+    .filter(x=>x.average>0)
+    .sort(
+      (a,b)=>
+        b.average-a.average
+    );
+}
+
+function getBestTeachers(){
+
+  return DATA.teachers
+    .map(t=>({
+
+      teacher:t,
+
+      average:
+        getFinalTeacherScore(t.id)
+
+    }))
+    .filter(x=>x.average>0)
+    .sort(
+      (a,b)=>
+        b.average-a.average
+    );
+}
+
+/* =========================================================
+   بطاقة لوحة الإدارة الرئيسية
+   ========================================================= */
+
+function renderAdminDashboardStats(){
+
+  const bestStudents=
+    getBestStudents();
+
+  const bestTeachers=
+    getBestTeachers();
+
+  return `
+
+    <div class="stats-grid">
+
+      <div class="stat-card">
+
+        <strong>
+          ${DATA.teachers.length}
+        </strong>
+
+        <span>
+          المعلمون
+        </span>
+
+      </div>
+
+      <div class="stat-card">
+
+        <strong>
+          ${DATA.rooms.length}
+        </strong>
+
+        <span>
+          القاعات
+        </span>
+
+      </div>
+
+      <div class="stat-card">
+
+        <strong>
+          ${DATA.students.length}
+        </strong>
+
+        <span>
+          الطلاب
+        </span>
+
+      </div>
+
+      <div class="stat-card">
+
+        <strong>
+          ${DATA.reports.length}
+        </strong>
+
+        <span>
+          التقارير
+        </span>
+
+      </div>
+
+    </div>
+
+    <div class="dashboard-highlight">
+
+      <h3>
+        🏆 أفضل الطلاب
+      </h3>
+
+      ${
+        bestStudents.slice(0,5).map(
+          (x,i)=>`
+
+            <div class="ranking-row">
+
+              <span>
+                ${i+1}.
+                ${esc(x.student.name)}
+              </span>
+
+              <strong>
+                ${x.average}%
+              </strong>
+
+            </div>
+
+          `
+        ).join('')
+        ||
+        '<div class="empty">لا توجد تقييمات كافية.</div>'
+      }
+
+    </div>
+
+    <div class="dashboard-highlight">
+
+      <h3>
+        👨‍🏫 أفضل المعلمين
+      </h3>
+
+      ${
+        bestTeachers.slice(0,5).map(
+          (x,i)=>`
+
+            <div class="ranking-row">
+
+              <span>
+                ${i+1}.
+                ${esc(x.teacher.name)}
+              </span>
+
+              <strong>
+                ${x.average}%
+              </strong>
+
+            </div>
+
+          `
+        ).join('')
+        ||
+        '<div class="empty">لا توجد تقييمات كافية.</div>'
+      }
+
+    </div>
+
+  `;
+}
+
+/* =========================================================
+   دعم التنقل بين القاعات
+   ========================================================= */
+
+function selectTeacherRoom(id){
+
+  if(
+    !teacherRooms().some(
+      r=>r.id===id
+    )
+  ){
+    return;
+  }
+
+  selectedTeacherRoomId=id;
+
+  teacherTab='evaluate';
+
+  renderTeacher();
+}
+
+/* =========================================================
+   تحديث البيانات من قاعدة البيانات
+   ========================================================= */
+
+async function refreshData(){
+
+  try{
+
+    await loadData();
+
+    if(currentAdmin){
+
+      renderAdmin();
+
+    }else if(currentTeacherId){
+
+      renderTeacher();
+
+    }
+
+    toast('تم تحديث البيانات');
+
+  }catch(e){
+
+    toast(
+      friendlyError(e),
+      true
+    );
+  }
+}
+
+/* =========================================================
+   دعم مفتاح Escape
+   ========================================================= */
+
+document.addEventListener(
+  'keydown',
+  e=>{
+
+    if(e.key==='Escape'){
+
+      document
+        .querySelectorAll('.modal')
+        .forEach(m=>m.remove());
+
+    }
+
+  }
+);
+
+/* =========================================================
+   مراقبة جلسة Supabase
+   ========================================================= */
+
+function setupAuthListener(){
+
+  db().auth.onAuthStateChange(
+    async (event,session)=>{
+
+      if(
+        event==='SIGNED_OUT'
+      ){
+
+        resetSession();
+
+        showScreen(
+          'screen-role'
+        );
+
+        setupLoginUI();
+
+        return;
+      }
+
+      if(
+        event==='TOKEN_REFRESHED'
+      ){
+        return;
+      }
+
+    }
+  );
+}
+
+/* =========================================================
+   تشغيل المنصة
+   ========================================================= */
+
+async function boot(){
+
+  try{
+
+    if(
+      typeof supabaseClient==='undefined'
+    ){
+
+      console.error(
+        'supabaseClient غير موجود.'
+      );
+
+      toast(
+        'خطأ: لم يتم إعداد Supabase في index.html.',
+        true
+      );
+
+      return;
+    }
+
+    setupLoginUI();
+
+    setupAuthListener();
+
+    const {
+      data:{
+        session
+      }
+    }=
+      await db()
+      .auth
+      .getSession();
+
+    if(!session){
+
+      showScreen(
+        'screen-role'
+      );
+
+      return;
+    }
+
+    try{
+
+      await loadSessionProfile();
+
+    }catch(e){
+
+      console.error(e);
+
+      await db()
+        .auth
+        .signOut();
+
+      showScreen(
+        'screen-role'
+      );
+
+      return;
+    }
+
+    await loadData();
+
+    if(
+      currentProfile?.role==='admin'
+    ){
+
+      currentAdmin=true;
+
+      adminTab='rooms';
+
+      showScreen(
+        'screen-admin'
+      );
+
+      renderAdmin();
+
+      toast(
+        'مرحبًا بك في لوحة الإدارة'
+      );
+
+    }else if(
+      currentProfile?.role==='teacher'
+    ){
+
+      currentAdmin=false;
+
+      currentTeacherId=
+        currentProfile.teacher_id;
+
+      if(!currentTeacherId){
+
+        await db()
+          .auth
+          .signOut();
+
+        resetSession();
+
+        showScreen(
+          'screen-role'
+        );
+
+        toast(
+          'حساب المعلم غير مرتبط بسجل معلم.',
+          true
+        );
+
+        return;
+      }
+
+      selectedTeacherRoomId=
+        teacherRooms()[0]?.id||null;
+
+      teacherTab='evaluate';
+
+      showScreen(
+        'screen-teacher'
+      );
+
+      renderTeacher();
+
+      toast(
+        'تم تسجيل الدخول بنجاح'
+      );
+
+    }else{
+
+      await db()
+        .auth
+        .signOut();
+
+      resetSession();
+
+      showScreen(
+        'screen-role'
+      );
+
+      toast(
+        'هذا الحساب ليس له دور محدد.',
+        true
+      );
+    }
+
+  }catch(e){
+
+    console.error(
+      'Boot error:',
+      e
+    );
+
+    toast(
+      friendlyError(e),
+      true
+    );
+
+    showScreen(
+      'screen-role'
+    );
+  }
+}
+
+/* =========================================================
+   إصلاحات توافق مع الواجهة القديمة
+   ========================================================= */
+
+function populateTeacherSelect(){
+
+  const sel=
+    $('teacherSelect');
+
+  if(!sel) return;
+
+  sel.innerHTML=
+    '<option value="">استخدم البريد الإلكتروني لتسجيل الدخول</option>';
+
+  sel.style.display='none';
+}
+
+function saveData(){
+
+  /*
+   * لم نعد نستخدم window.storage.
+   * الحفظ الآن يتم مباشرة في Supabase
+   * عند تنفيذ كل عملية.
+   */
+  return Promise.resolve();
+}
+
+/* =========================================================
+   تحديث تلقائي عند الرجوع للتبويب
+   ========================================================= */
+
+document.addEventListener(
+  'visibilitychange',
+  async ()=>{
+
+    if(
+      document.visibilityState==='visible' &&
+      currentUser
+    ){
+
+      try{
+
+        await loadData();
+
+        if(currentAdmin){
+          renderAdmin();
+        }else if(currentTeacherId){
+          renderTeacher();
+        }
+
+      }catch(e){
+
+        console.warn(
+          'تعذر تحديث البيانات:',
+          e
+        );
+
+      }
+
+    }
+
+  }
+);
+
+/* =========================================================
+   تشغيل
+   ========================================================= */
+
+boot();
