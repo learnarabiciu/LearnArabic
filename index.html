@@ -34,75 +34,52 @@
   <div class="header-actions" id="headerActions"></div>
 </header>
 
-<!-- ROLE SELECT -->
+<!-- شاشة تسجيل الدخول -->
+<!-- ملاحظة: script.js يحوّل هذه الشاشة تلقائياً عند التحميل (setupLoginUI) إلى
+     تسجيل دخول بالبريد الإلكتروني وكلمة المرور عبر Supabase Auth، لذلك حقلا
+     البريد وكلمة المرور مشتركان بين الإدارة والمعلم — فقط اختر الزر المناسب
+     لدورك بعد تعبئتهما. -->
 <section id="screen-role" class="screen active">
-  <div class="hero">
-    <h1>أهلاً بك</h1>
-    <p>منصة يقيّم من خلالها المعلمون والمعلمات طلابهم أولاً بأول، وتشرف عليها الإدارة بشكل كامل، لتكريم أفضل طالب في نهاية كل دورة.</p>
-    <div class="role-grid">
-      <div class="role-card">
-        <div class="role-icon">🛠️</div>
-        <h3>دخول الإدارة</h3>
-        <p>إضافة القاعات والمعلمين والمعلمات والطلاب، ومتابعة جميع التقييمات والتقارير.</p>
-        <button onclick="showScreen('screen-admin-login')">دخول كإدارة</button>
-      </div>
-      <div class="role-card teacher">
-        <div class="role-icon">🧑‍🏫</div>
-        <h3>دخول المعلم/ـة</h3>
-        <p>اختيار القاعة، تقييم الطلاب، ورفع التقرير الأسبوعي.</p>
-        <button onclick="showScreen('screen-teacher-login')">دخول كمعلم/ـة</button>
-      </div>
-    </div>
-  </div>
-</section>
+  <div class="login-shell">
+    <div class="login-box">
+      <h2>تسجيل الدخول</h2>
+      <p class="lead">أدخل البريد الإلكتروني وكلمة المرور الخاصة بحسابك، ثم اختر الدخول كإدارة أو كمعلم/ـة.</p>
 
-<!-- ADMIN LOGIN -->
-<section id="screen-admin-login" class="screen">
-  <div class="login-wrap">
-    <div class="login-card">
-      <a class="back-link" onclick="showScreen('screen-role')">→ رجوع</a>
-      <h2>دخول الإدارة</h2>
-      <p class="sub">أدخل كلمة المرور الخاصة بلوحة الإدارة</p>
-      <div class="field">
+      <div class="login-section">
         <label>كلمة المرور</label>
-        <input type="password" id="adminPwInput" placeholder="••••••••">
+        <div class="field">
+          <input type="password" id="adminPwInput" placeholder="••••••••">
+        </div>
+        <button class="btn primary block" onclick="adminLogin()">دخول لوحة الإدارة</button>
+        <div id="adminHint" class="hint"></div>
       </div>
-      <button class="btn block" onclick="adminLogin()">دخول</button>
-      <p class="hint" id="adminHint"></p>
+
+      <hr>
+
+      <div class="login-section">
+        <label>المعلم/ـة</label>
+        <div class="field">
+          <select id="teacherSelect"><option value="">جاري تحميل الأسماء...</option></select>
+        </div>
+        <button class="btn secondary block" onclick="teacherLogin()">دخول المعلم/ـة (بنفس البيانات أعلاه)</button>
+      </div>
     </div>
   </div>
 </section>
 
-<!-- TEACHER LOGIN -->
-<section id="screen-teacher-login" class="screen">
-  <div class="login-wrap">
-    <div class="login-card">
-      <a class="back-link" onclick="showScreen('screen-role')">→ رجوع</a>
-      <h2>دخول المعلم/ـة</h2>
-      <p class="sub">اختر اسمك من القائمة (الأسماء تُضاف من قِبل الإدارة)</p>
-      <div class="field">
-        <label>اسم المعلم/ـة</label>
-        <select id="teacherSelect"></select>
-      </div>
-      <button class="btn orange block" onclick="teacherLogin()">دخول</button>
-      <p class="hint" id="teacherHint"></p>
-    </div>
-  </div>
-</section>
-
-<!-- ADMIN DASHBOARD -->
+<!-- لوحة الإدارة -->
 <section id="screen-admin" class="screen">
-  <div class="dash">
+  <div class="layout">
     <nav class="sidebar" id="adminNav"></nav>
-    <div class="main" id="adminMain"></div>
+    <div class="main-panel" id="adminMain"></div>
   </div>
 </section>
 
-<!-- TEACHER DASHBOARD -->
+<!-- لوحة المعلم -->
 <section id="screen-teacher" class="screen">
-  <div class="dash">
+  <div class="layout">
     <nav class="sidebar" id="teacherNav"></nav>
-    <div class="main" id="teacherMain"></div>
+    <div class="main-panel" id="teacherMain"></div>
   </div>
 </section>
 
