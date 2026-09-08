@@ -35,23 +35,25 @@
 </header>
 
 <!-- شاشة تسجيل الدخول -->
-<!-- ملاحظة: script.js يحوّل هذه الشاشة تلقائياً عند التحميل (setupLoginUI) إلى
-     تسجيل دخول بالبريد الإلكتروني وكلمة المرور عبر Supabase Auth، لذلك حقلا
-     البريد وكلمة المرور مشتركان بين الإدارة والمعلم — فقط اختر الزر المناسب
-     لدورك بعد تعبئتهما. -->
+<!-- ملاحظة: الإدارة تسجل الدخول ببريد وكلمة مرور Supabase Auth كالسابق.
+     المعلم/ـة يسجل الدخول اختيار اسمه من القائمة + كود الدخول الذي تعطيه له
+     الإدارة من لوحة "المعلمون" (بدون حاجة لبريد إلكتروني أو Supabase Auth). -->
 <section id="screen-role" class="screen active">
   <div class="login-shell">
     <div class="login-box">
       <h2>تسجيل الدخول</h2>
-      <p class="lead">أدخل البريد الإلكتروني وكلمة المرور الخاصة بحسابك، ثم اختر الدخول كإدارة أو كمعلم/ـة.</p>
+      <p class="lead">اختر دخولك كإدارة أو كمعلم/ـة.</p>
 
       <div class="login-section">
-        <label>كلمة المرور</label>
+        <label>الإدارة</label>
         <div class="field">
-          <input type="password" id="adminPwInput" placeholder="••••••••">
+          <input type="email" id="adminEmailInput" placeholder="البريد الإلكتروني" autocomplete="username">
+        </div>
+        <div class="field">
+          <input type="password" id="adminPwInput" placeholder="كلمة المرور" autocomplete="current-password">
         </div>
         <button class="btn primary block" onclick="adminLogin()">دخول لوحة الإدارة</button>
-        <div id="adminHint" class="hint"></div>
+        <div id="adminHint" class="hint">استخدم البريد الإلكتروني وكلمة المرور الخاصة بحساب الإدارة.</div>
       </div>
 
       <hr>
@@ -61,7 +63,11 @@
         <div class="field">
           <select id="teacherSelect"><option value="">جاري تحميل الأسماء...</option></select>
         </div>
-        <button class="btn secondary block" onclick="teacherLogin()">دخول المعلم/ـة (بنفس البيانات أعلاه)</button>
+        <div class="field">
+          <input type="text" id="teacherCodeInput" placeholder="كود الدخول (مثال: X7I12)">
+        </div>
+        <button class="btn secondary block" onclick="teacherCodeLogin()">دخول المعلم/ـة</button>
+        <div class="hint">استخدم اسمك وكود الدخول الذي أعطتك إياه الإدارة.</div>
       </div>
     </div>
   </div>
