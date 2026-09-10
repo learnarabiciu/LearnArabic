@@ -33,7 +33,8 @@ let currentProfile = null;
 let currentAdmin = false;
 let currentTeacherId = null;
 let selectedTeacherRoomId = null;
-let selectedTeacherWeek = null;
+let selectedTeacherWeek = 1;
+let adminTeacherEvalWeek = 1;
 let adminTab = 'rooms';
 let teacherTab = 'evaluate';
 
@@ -148,119 +149,16 @@ function scoreClass(n){
   return 'low';
 }
 
-function avgScores(obj,criteria){
+function avgScores(obj,criteria,maxScale=5){
   if(!criteria.length) return 0;
 
+  const total=criteria.reduce((a,c)=>{
+    return a+Number(obj?.[c.key]||0);
+  },0);
+
   return Math.round(
-    criteria.reduce((a,c)=>{
-      return a+Number(obj?.[c.key]||0);
-    },0)/criteria.length
+    (total/(criteria.length*maxScale))*100
   );
-}
-
-const MAX_SCORE=10;
-
-function pct(avg,max=MAX_SCORE){
-  return Math.max(0,Math.min(100,Math.round((Number(avg||0)/max)*100)));
-}
-
-function getWeekKey(d=new Date()){
-  const date=new Date(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate()));
-  const dayNum=(date.getUTCDay()+6)%7;
-  date.setUTCDate(date.getUTCDate()-dayNum+3);
-  const firstThursday=new Date(Date.UTC(date.getUTCFullYear(),0,4));
-  const week=1+Math.round(
-    ((date-firstThursday)/86400000-3+((firstThursday.getUTCDay()+6)%7))/7
-  );
-  return `${date.getUTCFullYear()}-W${String(week).padStart(2,'0')}`;
-}
-
-function recentWeeks(n=10){
-  const out=[];
-  const now=new Date();
-  for(let i=0;i<n;i++){
-    const d=new Date(now);
-    d.setDate(d.getDate()-i*7);
-    const key=getWeekKey(d);
-    if(!out.includes(key)) out.push(key);
-  }
-  return out;
-}
-
-function studentEvaluations(studentId){
-  return DATA.evaluations.filter(e=>e.studentId===studentId);
-}
-
-function studentOverallPercent(studentId){
-  const evs=studentEvaluations(studentId);
-  if(!evs.length) return 0;
-  const total=evs.reduce((sum,e)=>sum+pct(avgScores(e.scores,CRITERIA)),0);
-  return Math.round(total/evs.length);
-}
-
-function latestStudentEval(studentId){
-  const evs=studentEvaluations(studentId)
-    .slice()
-    .sort((a,b)=>new Date(b.date)-new Date(a.date));
-  return evs[0]||null;
-}
-
-function courseDurationWeeks(room){
-  if(!room?.startDate||!room?.endDate) return null;
-  const start=new Date(room.startDate);
-  const end=new Date(room.endDate);
-  if(isNaN(start)||isNaN(end)||end<=start) return null;
-  return Math.max(1,Math.round((end-start)/(7*86400000)));
-}
-
-function roomWeekKeys(room){
-  const weeks=courseDurationWeeks(room);
-  if(!room?.startDate||!weeks) return null;
-  const out=[];
-  const start=new Date(room.startDate);
-  for(let i=0;i<weeks;i++){
-    const d=new Date(start);
-    d.setDate(d.getDate()+i*7);
-    out.push(getWeekKey(d));
-  }
-  return out;
-}
-
-function teacherAutoScore(teacherId){
-  const rooms=DATA.rooms.filter(r=>r.teacherId===teacherId);
-  const studentIds=DATA.students
-    .filter(s=>rooms.some(r=>r.id===s.roomId))
-    .map(s=>s.id);
-
-  let evs=DATA.evaluations.filter(e=>studentIds.includes(e.studentId));
-
-  const withDates=rooms.filter(r=>courseDurationWeeks(r));
-
-  if(withDates.length){
-    const allowedWeeks=new Set(
-      withDates.flatMap(r=>roomWeekKeys(r)||[])
-    );
-    const scopedEvs=evs.filter(e=>allowedWeeks.has(e.week));
-    if(scopedEvs.length) evs=scopedEvs;
-  }
-
-  if(!evs.length){
-    return {percent:0,count:0,weeks:withDates.map(courseDurationWeeks)};
-  }
-
-  const total=evs.reduce((sum,e)=>sum+pct(avgScores(e.scores,CRITERIA)),0);
-
-  return {
-    percent:Math.round(total/evs.length),
-    count:evs.length,
-    weeks:withDates.map(courseDurationWeeks)
-  };
-}
-
-function progressColor(percent){
-  if(percent>=75) return 'good';
-  if(percent>=50) return 'mid';
-  return 'low';
 }
 
 function stars(v){
@@ -329,8 +227,22 @@ function mapTeacher(r){
     name:r.name,
     phone:r.phone||'',
     userId:r.user_id||'',
+    loginCode:r.login_code||'',
     lastSeenAnnounce:r.last_seen_announce||null
   };
+}
+
+function genTeacherCode(){
+
+  const chars='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+
+  let code='';
+
+  for(let i=0;i<5;i++){
+    code+=chars[Math.floor(Math.random()*chars.length)];
+  }
+
+  return code;
 }
 
 function mapRoom(r){
@@ -339,8 +251,7 @@ function mapRoom(r){
     name:r.name,
     course:r.course||'',
     teacherId:r.teacher_id||null,
-    startDate:r.start_date||'',
-    endDate:r.end_date||''
+    durationWeeks:r.duration_weeks||null
   };
 }
 
@@ -361,7 +272,7 @@ function mapEval(r){
     studentId:r.student_id,
     teacherId:r.teacher_id,
     roomId:r.room_id,
-    week:r.week||'',
+    week:Number(r.week||1),
     scores,
     note:r.note||'',
     date:r.created_at||r.date
@@ -374,6 +285,7 @@ function mapTeacherEval(r){
   return {
     id:r.id,
     teacherId:r.teacher_id,
+    week:Number(r.week||1),
     scores,
     note:r.note||'',
     date:r.created_at||r.date
@@ -489,6 +401,7 @@ async function loadData(){
   DATA.teachers=(teachers||[]).map(mapTeacher);
   DATA.rooms=(rooms||[]).map(mapRoom);
   DATA.students=(students||[]).map(mapStudent);
+  sortStudents();
   DATA.evaluations=(evaluations||[]).map(mapEval);
   DATA.reports=(reports||[]).map(mapReport);
   DATA.announcements=(announcements||[]).map(mapAnnouncement);
@@ -521,103 +434,119 @@ function setupLoginUI(){
 
   if(!role) return;
 
-  const card=role.querySelector('.card')||role;
+  populateTeacherSelect();
+}
 
-  const title=card.querySelector('h2');
-
-  if(title){
-    title.textContent='تسجيل الدخول';
-  }
-
-  const pw=$('adminPwInput');
-
-  if(pw){
-
-    const oldLabel=pw.previousElementSibling;
-
-    if(oldLabel){
-      oldLabel.textContent='كلمة المرور';
-    }
-
-    pw.id='authPasswordInput';
-    pw.placeholder='كلمة المرور';
-    pw.autocomplete='current-password';
-  }
-
-  if(!$('authEmailInput')){
-
-    const email=document.createElement('input');
-
-    email.id='authEmailInput';
-    email.type='email';
-    email.placeholder='البريد الإلكتروني';
-    email.autocomplete='username';
-    email.className='input';
-
-    const p=$('authPasswordInput');
-
-    if(p?.parentElement){
-
-      p.parentElement.parentElement
-        ?.insertBefore(email,p.parentElement);
-
-    }else{
-
-      role.querySelector('input')?.before(email);
-
-    }
-  }
-
-  const adminBtn=
-    role.querySelector('button[onclick="adminLogin()"]');
-
-  const teacherBtn=
-    role.querySelector('button[onclick="teacherLogin()"]');
-
-  if(adminBtn){
-    adminBtn.textContent='دخول الإدارة';
-    adminBtn.onclick=()=>{
-      loginAs('admin');
-    };
-  }
-
-  if(teacherBtn){
-    teacherBtn.textContent='دخول المعلم/ـة';
-    teacherBtn.onclick=()=>{
-      loginAs('teacher');
-    };
-  }
+async function populateTeacherSelect(){
 
   const sel=$('teacherSelect');
 
-  if(sel){
+  if(!sel) return;
 
-    sel.style.display='none';
+  sel.innerHTML=
+    '<option value="">جاري تحميل الأسماء...</option>';
 
-    const label=sel.previousElementSibling;
+  try{
 
-    if(label){
-      label.style.display='none';
-    }
-  }
+    const rows=await sb(
+      db()
+      .from('teachers')
+      .select('id,name')
+      .order('name',{ascending:true})
+    );
 
-  const hint=$('adminHint');
+    sel.innerHTML=
+      '<option value="">اختر اسمك...</option>'+
+      (rows||[]).map(t=>`
+        <option value="${t.id}">${esc(t.name)}</option>
+      `).join('');
 
-  if(hint){
-    hint.textContent=
-      'استخدم البريد الإلكتروني وكلمة المرور الخاصة بحسابك.';
+  }catch(e){
+
+    sel.innerHTML=
+      '<option value="">تعذر تحميل الأسماء</option>';
   }
 }
 
-async function loginAs(expected){
+async function teacherCodeLogin(){
+
+  try{
+
+    const teacherId=
+      $('teacherSelect')?.value;
+
+    const code=
+      $('teacherCodeInput')?.value.trim();
+
+    if(!teacherId||!code){
+
+      toast(
+        'اختر اسمك وأدخل كود الدخول.',
+        true
+      );
+
+      return;
+    }
+
+    const row=await sb(
+      db()
+      .from('teachers')
+      .select('*')
+      .eq('id',teacherId)
+      .eq('login_code',code)
+      .maybeSingle()
+    );
+
+    if(!row){
+
+      toast(
+        'الكود غير صحيح.',
+        true
+      );
+
+      return;
+    }
+
+    currentUser={codeLogin:true,name:row.name};
+    currentProfile=null;
+    currentAdmin=false;
+    currentTeacherId=row.id;
+
+    try{
+      localStorage.setItem('saqifah:teacherSession',row.id);
+    }catch{}
+
+    await loadData();
+
+    selectedTeacherRoomId=
+      teacherRooms()[0]?.id||null;
+
+    teacherTab='evaluate';
+
+    showScreen('screen-teacher');
+
+    renderTeacher();
+
+    toast('تم تسجيل الدخول بنجاح');
+
+  }catch(e){
+
+    toast(
+      friendlyError(e),
+      true
+    );
+  }
+}
+
+async function adminLogin(){
 
   try{
 
     const email=
-      $('authEmailInput')?.value.trim();
+      $('adminEmailInput')?.value.trim();
 
     const password=
-      $('authPasswordInput')?.value;
+      $('adminPwInput')?.value;
 
     if(!email||!password){
 
@@ -639,7 +568,6 @@ async function loginAs(expected){
     await loadSessionProfile();
 
     if(
-      expected==='admin' &&
       currentProfile?.role!=='admin'
     ){
 
@@ -654,60 +582,16 @@ async function loginAs(expected){
       return;
     }
 
-    if(
-      expected==='teacher' &&
-      currentProfile?.role!=='teacher'
-    ){
-
-      await db().auth.signOut();
-      resetSession();
-
-      toast(
-        'هذا الحساب ليس حساب معلم.',
-        true
-      );
-
-      return;
-    }
-
     await loadData();
 
-    if(currentProfile.role==='admin'){
+    currentAdmin=true;
+    adminTab='rooms';
 
-      currentAdmin=true;
+    showScreen('screen-admin');
 
-      showScreen('screen-admin');
+    renderAdmin();
 
-      renderAdmin();
-
-    }else{
-
-      currentAdmin=false;
-
-      currentTeacherId=
-        currentProfile.teacher_id;
-
-      if(!currentTeacherId){
-
-        await db().auth.signOut();
-
-        resetSession();
-
-        toast(
-          'لم يتم ربط حساب المعلم بسجل المعلم.',
-          true
-        );
-
-        return;
-      }
-
-      selectedTeacherRoomId=
-        teacherRooms()[0]?.id||null;
-
-      showScreen('screen-teacher');
-
-      renderTeacher();
-    }
+    toast('مرحبًا بك في لوحة الإدارة');
 
   }catch(e){
 
@@ -753,18 +637,21 @@ function resetSession(){
 
 }
 
-async function adminLogin(){
-  return loginAs('admin');
-}
-
-async function teacherLogin(){
-  return loginAs('teacher');
-}
-
 async function logout(){
 
   try{
-    await db().auth.signOut();
+
+    if(currentUser?.codeLogin){
+
+      localStorage.removeItem(
+        'saqifah:teacherSession'
+      );
+
+    }else{
+
+      await db().auth.signOut();
+    }
+
   }catch{}
 
   resetSession();
@@ -791,6 +678,7 @@ function renderHeaderActions(){
       <span class="user-chip">
         ${esc(
           currentProfile?.full_name||
+          currentUser.name||
           currentUser.email
         )}
       </span>
@@ -1011,6 +899,13 @@ function renderAdminRooms(){
         class="input"
         placeholder="اسم الدورة / المستوى">
 
+      <input
+        id="roomDuration"
+        type="number"
+        min="1"
+        class="input"
+        placeholder="مدة الدورة (عدد الأسابيع)">
+
       <select
         id="roomTeacher"
         class="input">
@@ -1029,16 +924,6 @@ function renderAdminRooms(){
 
       </select>
 
-      <label style="font-size:12px;color:var(--muted);">
-        بداية الدورة
-        <input id="roomStart" type="date" class="input">
-      </label>
-
-      <label style="font-size:12px;color:var(--muted);">
-        نهاية الدورة
-        <input id="roomEnd" type="date" class="input">
-      </label>
-
       <button
         class="btn primary">
         إضافة القاعة
@@ -1055,8 +940,8 @@ function renderAdminRooms(){
           <tr>
             <th>القاعة</th>
             <th>الدورة</th>
+            <th>المدة</th>
             <th>المعلم</th>
-            <th>مدة الدورة</th>
             <th>الطلاب</th>
             <th></th>
           </tr>
@@ -1078,18 +963,18 @@ function renderAdminRooms(){
               </td>
 
               <td>
+                ${
+                  r.durationWeeks
+                  ? `${r.durationWeeks} أسبوع`
+                  : '-'
+                }
+              </td>
+
+              <td>
                 ${esc(
                   getTeacher(r.teacherId)?.name||
                   'غير محدد'
                 )}
-              </td>
-
-              <td>
-                ${
-                  courseDurationWeeks(r)
-                    ? `${courseDurationWeeks(r)} أسبوع`
-                    : 'غير محددة'
-                }
               </td>
 
               <td>
@@ -1142,14 +1027,13 @@ async function addRoom(e){
         course:
           $('roomCourse').value.trim(),
 
+        duration_weeks:
+          $('roomDuration').value
+            ? Number($('roomDuration').value)
+            : null,
+
         teacher_id:
-          $('roomTeacher').value||null,
-
-        start_date:
-          $('roomStart')?.value||null,
-
-        end_date:
-          $('roomEnd')?.value||null
+          $('roomTeacher').value||null
 
       })
       .select()
@@ -1254,10 +1138,11 @@ function renderAdminTeachers(){
     `
     <div class="notice">
 
-      إنشاء حساب الدخول للمعلم يتم من
-      Supabase Auth، ثم يُربط بحقل
-      user_id في سجل المعلم وteacher_id
-      في profiles.
+      عند إضافة معلم جديد يتم توليد كود دخول
+      خاص به تلقائيًا. أعطِ المعلم اسمه (كما
+      سيظهر في القائمة) والكود، ويستخدمهما
+      للدخول من الصفحة الرئيسية بدون بريد
+      إلكتروني أو كلمة مرور.
 
     </div>
 
@@ -1275,11 +1160,6 @@ function renderAdminTeachers(){
         id="teacherPhone"
         class="input"
         placeholder="رقم الجوال">
-
-      <input
-        id="teacherUserId"
-        class="input"
-        placeholder="User ID (اختياري)">
 
       <button
         class="btn primary">
@@ -1300,7 +1180,7 @@ function renderAdminTeachers(){
 
             <th>الاسم</th>
             <th>الجوال</th>
-            <th>User ID</th>
+            <th>كود الدخول</th>
             <th>القاعات</th>
             <th></th>
 
@@ -1323,7 +1203,7 @@ function renderAdminTeachers(){
               </td>
 
               <td class="ltr">
-                ${esc(t.userId||'-')}
+                <strong>${esc(t.loginCode||'-')}</strong>
               </td>
 
               <td>
@@ -1337,7 +1217,15 @@ function renderAdminTeachers(){
 
               </td>
 
-              <td>
+              <td style="display:flex;gap:6px;">
+
+                <button
+                  class="btn ghost small"
+                  onclick="regenerateTeacherCode('${t.id}')">
+
+                  كود جديد
+
+                </button>
 
                 <button
                   class="btn danger small"
@@ -1380,8 +1268,7 @@ async function addTeacher(e){
         phone:
           $('teacherPhone').value.trim(),
 
-        user_id:
-          $('teacherUserId').value.trim()||null
+        login_code:genTeacherCode()
 
       })
       .select()
@@ -1393,7 +1280,53 @@ async function addTeacher(e){
       mapTeacher(row)
     );
 
-    toast('تمت إضافة المعلم');
+    toast(
+      `تمت إضافة المعلم — كود الدخول: ${row.login_code}`
+    );
+
+    renderAdmin();
+
+  }catch(x){
+
+    toast(
+      friendlyError(x),
+      true
+    );
+  }
+}
+
+async function regenerateTeacherCode(id){
+
+  if(!confirm(
+    'توليد كود دخول جديد لهذا المعلم؟ سيتوقف الكود القديم عن العمل فورًا.'
+  )){
+    return;
+  }
+
+  try{
+
+    const newCode=genTeacherCode();
+
+    const row=await sb(
+
+      db()
+      .from('teachers')
+      .update({login_code:newCode})
+      .eq('id',id)
+      .select()
+      .single()
+
+    );
+
+    const t=getTeacher(id);
+
+    if(t){
+      t.loginCode=row.login_code;
+    }
+
+    toast(
+      `الكود الجديد: ${row.login_code}`
+    );
 
     renderAdmin();
 
@@ -1489,56 +1422,105 @@ async function deleteTeacher(id){
    تقييم المعلمين
    ========================================================= */
 
-function renderAdminTeacherEval(){
+function getTeacherDurationWeeks(teacherId){
 
-  const ranking=DATA.teachers
-    .map(t=>({teacher:t,auto:teacherAutoScore(t.id)}))
-    .sort((a,b)=>b.auto.percent-a.auto.percent);
+  const durations=
+    DATA.rooms
+      .filter(r=>r.teacherId===teacherId)
+      .map(r=>r.durationWeeks)
+      .filter(Boolean);
+
+  if(!durations.length){
+    return 24;
+  }
+
+  return Math.max(...durations);
+}
+
+function progressBarHtml(pct){
+
+  const p=Math.max(0,Math.min(100,Number(pct)||0));
+
+  return `
+    <div class="progress-track">
+      <div
+        class="progress-fill ${scoreClass(p)}"
+        style="width:${p}%;">
+      </div>
+    </div>
+  `;
+}
+
+function renderAdminTeacherEval(){
 
   return panel(
     'تقييم المعلمين',
 
     `
-    <div class="dashboard-highlight">
-      <h3>🏆 ترتيب المعلمين خلال دورتهم الحالية</h3>
+    <div class="notice">
 
-      ${
-        ranking.length
-        ? ranking.map((x,i)=>`
-            <div class="ranking-row" style="flex-direction:column;align-items:stretch;gap:6px;">
-              <div style="display:flex;justify-content:space-between;">
-                <span>${i+1}. ${esc(x.teacher.name)}</span>
-                <strong>${x.auto.count?`${x.auto.percent}%`:'لا يوجد تقييم بعد'}</strong>
-              </div>
-              <div class="progress-track">
-                <div class="progress-fill ${progressColor(x.auto.percent)}" style="width:${x.auto.count?x.auto.percent:0}%"></div>
-              </div>
-            </div>
-          `).join('')
-        : '<div class="empty">لا يوجد معلمون بعد.</div>'
-      }
+      التقييم أسبوعي ومستمر طوال مدة الدورة
+      المحددة للمعلم في قسم "القاعات
+      والدورات" — عدد الأسابيع أدناه يُحسب
+      تلقائيًا من مدة القاعة/الدورة المسندة
+      إليه.
+
     </div>
+
+    ${renderTeacherRanking()}
 
     <div class="toolbar">
 
       <select
         id="adminTeacherEvalSelect"
         class="input"
-        onchange="adminTeacherEvalSelected=this.value;renderAdmin()">
+        onchange="adminTeacherEvalSelected=this.value;adminTeacherEvalWeek=1;renderAdmin()">
 
         <option value="">
-          اختر معلمًا لعرض التفاصيل
+          اختر معلمًا
         </option>
 
         ${DATA.teachers.map(t=>`
 
-          <option value="${t.id}">
+          <option
+            value="${t.id}"
+            ${
+              window.adminTeacherEvalSelected===t.id
+              ?'selected'
+              :''
+            }>
             ${esc(t.name)}
           </option>
 
         `).join('')}
 
       </select>
+
+      ${
+        window.adminTeacherEvalSelected
+        ? `
+          <label>الأسبوع</label>
+          <select
+            class="input"
+            onchange="adminTeacherEvalWeek=Number(this.value);renderAdmin()">
+
+            ${Array.from(
+              {length:getTeacherDurationWeeks(window.adminTeacherEvalSelected)},
+              (_,i)=>i+1
+            ).map(w=>`
+
+              <option
+                value="${w}"
+                ${adminTeacherEvalWeek===w?'selected':''}>
+                أسبوع ${w}
+              </option>
+
+            `).join('')}
+
+          </select>
+        `
+        :''
+      }
 
     </div>
 
@@ -1548,6 +1530,69 @@ function renderAdminTeacherEval(){
 
     `
   );
+}
+
+function renderTeacherRanking(){
+
+  const ranked=getBestTeachers();
+
+  if(!ranked.length){
+
+    return `
+      <div class="empty">
+        لا توجد تقييمات كافية بعد لعرض ترتيب المعلمين.
+      </div>
+    `;
+  }
+
+  return `
+
+    <div class="dashboard-highlight">
+
+      <h3>ترتيب المعلمين (الأفضل أولاً)</h3>
+
+      ${ranked.map((x,i)=>`
+
+        <div class="progress-row">
+
+          <span class="progress-label">
+            ${i+1}. ${esc(x.teacher.name)}
+          </span>
+
+          ${progressBarHtml(x.average)}
+
+          <span class="progress-pct">
+            ${x.average}%
+          </span>
+
+        </div>
+
+      `).join('')}
+
+    </div>
+
+  `;
+}
+
+function renderTeacherEvaluationHistory(tid){
+
+  const rows=
+    DATA.teacherEvaluations
+      .filter(x=>x.teacherId===tid)
+      .sort((a,b)=>a.week-b.week);
+
+  if(!rows.length){
+    return '';
+  }
+
+  return `
+    <div class="notice">
+      سجل الأسابيع السابقة:
+      ${rows.map(r=>
+        `أسبوع ${r.week}: ${avgScores(r.scores,TEACHER_CRITERIA)}%`
+      ).join(' | ')}
+    </div>
+  `;
 }
 
 function renderTeacherEvaluationEditor(tid){
@@ -1561,54 +1606,21 @@ function renderTeacherEvaluationEditor(tid){
     `;
   }
 
+  const week=adminTeacherEvalWeek||1;
+
   const row=
     DATA.teacherEvaluations.find(
-      x=>x.teacherId===tid
+      x=>x.teacherId===tid && x.week===week
     );
 
   const scores=row?.scores||{};
 
-  const teacherRoomsList=DATA.rooms.filter(r=>r.teacherId===tid);
-  const auto=teacherAutoScore(tid);
-  const durations=teacherRoomsList
-    .map(r=>({room:r,weeks:courseDurationWeeks(r)}))
-    .filter(x=>x.weeks);
-
   return `
 
-    <div class="card-inner">
-      <h3>الأداء التلقائي خلال الدورة</h3>
-
-      ${
-        durations.length
-        ? durations.map(x=>`
-            <div class="small-note">
-              ${esc(x.room.name)}: ${x.weeks} أسبوع
-              (${esc(fmtDate(x.room.startDate))} → ${esc(fmtDate(x.room.endDate))})
-            </div>
-          `).join('')
-        : '<div class="small-note">لم تُحدَّد تواريخ بداية/نهاية للدورة بعد — يُحتسب المتوسط من كل التقييمات المسجّلة.</div>'
-      }
-
-      <div class="progress-track" style="margin-top:10px;">
-        <div class="progress-fill ${progressColor(auto.percent)}" style="width:${auto.count?auto.percent:0}%"></div>
-      </div>
-
-      <div class="small-note" style="margin-top:6px;">
-        ${
-          auto.count
-          ? `متوسط تقييمات الطلاب خلال الدورة: <strong>${auto.percent}%</strong> (بناءً على ${auto.count} تقييم أسبوعي)`
-          : 'لا توجد تقييمات طلاب مسجّلة لهذا المعلم بعد.'
-        }
-      </div>
-    </div>
-
-    <div class="notice">
-      يمكنك أيضًا إضافة تقييم يدوي إضافي من الإدارة أدناه (اختياري) يُستخدم كملاحظات تكميلية.
-    </div>
+    ${renderTeacherEvaluationHistory(tid)}
 
     <form
-      onsubmit="saveTeacherEvaluation(event,'${tid}')"
+      onsubmit="saveTeacherEvaluation(event,'${tid}',${week})"
       class="eval-grid">
 
       ${TEACHER_CRITERIA.map(c=>`
@@ -1666,14 +1678,17 @@ function renderTeacherEvaluationEditor(tid){
   `;
 }
 
-async function saveTeacherEvaluation(e,tid){
+async function saveTeacherEvaluation(e,tid,week){
 
   e.preventDefault();
 
   const f=new FormData(e.target);
 
+  const w=Number(week)||1;
+
   const payload={
     teacher_id:tid,
+    week:w,
     note:f.get('note')||''
   };
 
@@ -1687,7 +1702,7 @@ async function saveTeacherEvaluation(e,tid){
 
     const existing=
       DATA.teacherEvaluations.find(
-        x=>x.teacherId===tid
+        x=>x.teacherId===tid && x.week===w
       );
 
     let row;
@@ -1720,14 +1735,14 @@ async function saveTeacherEvaluation(e,tid){
 
     DATA.teacherEvaluations=
       DATA.teacherEvaluations.filter(
-        x=>x.teacherId!==tid
+        x=>!(x.teacherId===tid && x.week===w)
       );
 
     DATA.teacherEvaluations.push(
       mapped
     );
 
-    toast('تم حفظ تقييم المعلم');
+    toast(`تم حفظ تقييم الأسبوع ${w}`);
 
     renderAdmin();
 
@@ -1792,6 +1807,56 @@ function renderAdminStudents(){
 
     </form>
 
+    <hr>
+
+    <div class="notice">
+
+      إضافة عدة طلاب دفعة واحدة: اكتب اسم كل
+      طالب في سطر مستقل، ويمكنك إضافة رقم
+      الجوال بعد فاصلة (اختياري). مثال:
+      <br>أحمد الشمري, 0555555555
+      <br>خالد العتيبي
+
+    </div>
+
+    <form
+      onsubmit="addStudentsBulk(event)"
+      class="form-grid">
+
+      <textarea
+        id="bulkStudentsText"
+        class="input"
+        rows="6"
+        placeholder="اسم الطالب, رقم الجوال (اختياري)"
+        required></textarea>
+
+      <select
+        id="bulkStudentRoom"
+        class="input">
+
+        <option value="">
+          بدون قاعة
+        </option>
+
+        ${DATA.rooms.map(r=>`
+
+          <option value="${r.id}">
+            ${esc(r.name)}
+          </option>
+
+        `).join('')}
+
+      </select>
+
+      <button
+        class="btn secondary">
+
+        إضافة القائمة
+
+      </button>
+
+    </form>
+
     <div class="table-wrap">
 
       <table>
@@ -1812,8 +1877,8 @@ function renderAdminStudents(){
 
           ${DATA.students.map(s=>{
 
-            const hasEval=
-              studentEvaluations(s.id).length>0;
+            const overall=
+              getStudentAverage(s.id);
 
             return `
 
@@ -1835,8 +1900,8 @@ function renderAdminStudents(){
 
                 <td>
                   ${
-                    hasEval
-                      ? `${studentOverallPercent(s.id)}%`
+                    overall>0
+                      ? overall+'%'
                       : 'غير مقيم'
                   }
                 </td>
@@ -1899,7 +1964,98 @@ async function addStudent(e){
       mapStudent(row)
     );
 
+    sortStudents();
+
     toast('تمت إضافة الطالب');
+
+    renderAdmin();
+
+  }catch(x){
+
+    toast(
+      friendlyError(x),
+      true
+    );
+  }
+}
+
+function sortStudents(){
+
+  DATA.students.sort((a,b)=>
+    a.name.localeCompare(b.name,'ar')
+  );
+}
+
+async function addStudentsBulk(e){
+
+  e.preventDefault();
+
+  try{
+
+    const raw=
+      $('bulkStudentsText').value;
+
+    const roomId=
+      $('bulkStudentRoom').value||null;
+
+    const lines=raw
+      .split('\n')
+      .map(l=>l.trim())
+      .filter(l=>l.length);
+
+    if(!lines.length){
+
+      toast(
+        'أدخل اسمًا واحدًا على الأقل.',
+        true
+      );
+
+      return;
+    }
+
+    const payload=lines.map(line=>{
+
+      const [namePart,phonePart]=
+        line.split(',');
+
+      return {
+        name:(namePart||'').trim(),
+        phone:(phonePart||'').trim(),
+        room_id:roomId
+      };
+
+    }).filter(s=>s.name);
+
+    if(!payload.length){
+
+      toast(
+        'لم يتم العثور على أسماء صالحة.',
+        true
+      );
+
+      return;
+    }
+
+    const rows=await sb(
+
+      db()
+      .from('students')
+      .insert(payload)
+      .select()
+
+    );
+
+    (rows||[]).forEach(r=>{
+      DATA.students.push(mapStudent(r));
+    });
+
+    sortStudents();
+
+    $('bulkStudentsText').value='';
+
+    toast(
+      `تمت إضافة ${(rows||[]).length} طالب/طالبة`
+    );
 
     renderAdmin();
 
@@ -1952,10 +2108,27 @@ async function deleteStudent(id){
 
 function renderAdminEvals(){
 
+  const ranked=getBestStudents();
+
+  const rankedIds=
+    new Set(ranked.map(x=>x.student.id));
+
+  const unevaluated=
+    DATA.students.filter(
+      s=>!rankedIds.has(s.id)
+    );
+
   return panel(
     'تقييم الطلاب',
 
     `
+    <div class="notice">
+
+      الترتيب تلقائي بناءً على متوسط تقييمات
+      المعلم للطالب عبر كل أسابيع الدورة.
+
+    </div>
+
     <div class="table-wrap">
 
       <table>
@@ -1964,11 +2137,12 @@ function renderAdminEvals(){
 
           <tr>
 
+            <th>#</th>
             <th>الطالب</th>
             <th>القاعة</th>
             <th>المعلم</th>
-            <th>المتوسط</th>
-            <th>التفاصيل</th>
+            <th>عدد الأسابيع المقيَّمة</th>
+            <th>المتوسط العام</th>
 
           </tr>
 
@@ -1976,20 +2150,60 @@ function renderAdminEvals(){
 
         <tbody>
 
-          ${DATA.students.map(s=>{
+          ${ranked.map((x,i)=>{
 
-            const e=
-              latestStudentEval(s.id);
+            const r=getRoom(x.student.roomId);
 
-            const overall=
-              studentOverallPercent(s.id);
-
-            const r=
-              getRoom(s.roomId);
+            const weeksCount=
+              DATA.evaluations.filter(
+                e=>e.studentId===x.student.id
+              ).length;
 
             return `
 
               <tr>
+
+                <td>${i+1}</td>
+
+                <td>
+                  ${esc(x.student.name)}
+                </td>
+
+                <td>
+                  ${esc(r?.name||'-')}
+                </td>
+
+                <td>
+                  ${esc(
+                    getTeacher(r?.teacherId)?.name||'-'
+                  )}
+                </td>
+
+                <td>
+                  ${weeksCount}
+                </td>
+
+                <td>
+                  <b class="${scoreClass(x.average)}">
+                    ${x.average}%
+                  </b>
+                </td>
+
+              </tr>
+
+            `;
+
+          }).join('')}
+
+          ${unevaluated.map(s=>{
+
+            const r=getRoom(s.roomId);
+
+            return `
+
+              <tr>
+
+                <td>-</td>
 
                 <td>
                   ${esc(s.name)}
@@ -2001,37 +2215,13 @@ function renderAdminEvals(){
 
                 <td>
                   ${esc(
-                    getTeacher(
-                      r?.teacherId
-                    )?.name||'-'
+                    getTeacher(r?.teacherId)?.name||'-'
                   )}
                 </td>
 
-                <td>
+                <td>0</td>
 
-                  ${
-                    e
-                      ? `
-                        <b class="${scoreClass(overall)}">
-                          ${overall}%
-                        </b>
-                      `
-                      : '-'
-                  }
-
-                </td>
-
-                <td>
-
-                  ${
-                    e
-                      ? `(${esc(e.week||'-')}) `+CRITERIA.map(c=>
-                          `${c.label}: ${e.scores[c.key]}`
-                        ).join(' | ')
-                      : 'لا يوجد'
-                  }
-
-                </td>
+                <td>غير مقيَّم</td>
 
               </tr>
 
@@ -2145,11 +2335,23 @@ function renderAdminReports(){
                     r.images?.length
                     ? `
                       <div class="report-images">
+
                         ${r.images.map(img=>`
-                          <a href="${img}" target="_blank" rel="noopener">
-                            <img src="${img}" alt="صورة التقرير" loading="lazy">
+
+                          <a
+                            href="${img}"
+                            target="_blank"
+                            rel="noopener">
+
+                            <img
+                              src="${img}"
+                              alt="صورة التقرير"
+                              loading="lazy">
+
                           </a>
+
                         `).join('')}
+
                       </div>
                     `
                     : '-'
@@ -2372,104 +2574,104 @@ function renderAdminChampion(){
     'الطلاب المتميزون',
 
     `
-    <div class="form-grid">
+    <div class="notice">
 
-      ${DATA.rooms.map(room=>{
-
-        const students=
-          DATA.students.filter(
-            s=>s.roomId===room.id
-          );
-
-        const selected=
-          DATA.champions[room.id];
-
-        const ranked=students
-          .map(s=>({student:s,percent:studentOverallPercent(s.id)}))
-          .sort((a,b)=>b.percent-a.percent);
-
-        return `
-
-          <div class="card-inner">
-
-            <h3>
-              ${esc(room.name)}
-            </h3>
-
-            ${
-              ranked.length
-              ? ranked.map(x=>`
-                  <div class="ranking-row" style="flex-direction:column;align-items:stretch;gap:5px;">
-                    <div style="display:flex;justify-content:space-between;">
-                      <span>${esc(x.student.name)} ${selected===x.student.id?'🏆':''}</span>
-                      <strong>${x.percent}%</strong>
-                    </div>
-                    <div class="progress-track">
-                      <div class="progress-fill ${progressColor(x.percent)}" style="width:${x.percent}%"></div>
-                    </div>
-                  </div>
-                `).join('')
-              : '<div class="empty">لا يوجد طلاب بهذه القاعة.</div>'
-            }
-
-            <label style="margin-top:10px;display:block;">
-              اختيار الطالب المتميز يدويًا
-            </label>
-
-            <select
-              id="champion-${room.id}"
-              class="input">
-
-              <option value="">
-                لم يتم الاختيار
-              </option>
-
-              ${students.map(s=>`
-
-                <option
-                  value="${s.id}"
-                  ${
-                    selected===s.id
-                    ?'selected'
-                    :''
-                  }>
-
-                  ${esc(s.name)}
-
-                </option>
-
-              `).join('')}
-
-            </select>
-
-            <button
-              class="btn primary"
-              onclick="saveChampion('${room.id}')">
-
-              حفظ الطالب المتميز
-
-            </button>
-
-            ${
-              selected
-              ? `
-                <div class="champion-result">
-                  🏆
-                  ${esc(
-                    getStudent(selected)?.name||''
-                  )}
-                </div>
-              `
-              :''
-            }
-
-          </div>
-
-        `;
-
-      }).join('')}
+      يتحدد ترتيب كل طالب تلقائيًا حسب متوسط
+      تقييمات المعلم له خلال أسابيع الدورة —
+      الشريط الأخضر الكامل يعني تميّزًا مرتفعًا،
+      الأخضر الفاتح يعني تميّزًا جيدًا، والأحمر
+      يعني تقييمًا مقبولًا أو ضعيفًا.
 
     </div>
+
+    ${DATA.rooms.map(room=>{
+
+      const ranked=
+        getBestStudents(room.id);
+
+      const unranked=
+        DATA.students.filter(
+          s=>s.roomId===room.id &&
+             !ranked.some(x=>x.student.id===s.id)
+        );
+
+      return `
+
+        <div class="dashboard-highlight">
+
+          <h3>${esc(room.name)}</h3>
+
+          ${
+            ranked.length
+            ? ranked.map(x=>`
+
+              <div class="progress-row">
+
+                <span class="progress-label">
+                  ${esc(x.student.name)}
+                </span>
+
+                ${progressBarHtml(x.average)}
+
+                <span class="progress-pct">
+                  ${x.average}%
+                </span>
+
+              </div>
+
+            `).join('')
+            : ''
+          }
+
+          ${
+            unranked.length
+            ? unranked.map(s=>`
+
+              <div class="progress-row">
+
+                <span class="progress-label">
+                  ${esc(s.name)}
+                </span>
+
+                ${progressBarHtml(0)}
+
+                <span class="progress-pct">
+                  -
+                </span>
+
+              </div>
+
+            `).join('')
+            : ''
+          }
+
+          ${
+            !ranked.length && !unranked.length
+            ? `
+              <div class="empty">
+                لا يوجد طلاب في هذه القاعة.
+              </div>
+            `
+            : ''
+          }
+
+          ${
+            ranked[0]
+            ? `
+              <div class="champion-result">
+                🏆 الطالب المتميز:
+                ${esc(ranked[0].student.name)}
+                — ${ranked[0].average}%
+              </div>
+            `
+            : ''
+          }
+
+        </div>
+
+      `;
+
+    }).join('')}
     `
   );
 }
@@ -2671,9 +2873,8 @@ function exportAllExcel(){
         'الطالب':student?.name||'',
         'القاعة':room?.name||'',
         'المعلم':teacher?.name||'',
-        'الأسبوع':e.week||'',
-        'المتوسط %':
-          pct(avgScores(e.scores,CRITERIA)),
+        'المتوسط':
+          avgScores(e.scores,CRITERIA,10),
         'الملاحظة':e.note||'',
         'التاريخ':fmtDate(e.date)
       };
@@ -2731,47 +2932,63 @@ function exportAllExcel(){
 
 function exportStudentsExcel(){
 
-  const rows=
-    DATA.students.map(s=>{
+  const rows=[];
 
-      const e=
-        latestStudentEval(s.id);
+  DATA.students.forEach(s=>{
+
+    const room=getRoom(s.roomId);
+    const teacher=getTeacher(room?.teacherId);
+    const overall=getStudentAverage(s.id);
+
+    const studentEvals=
+      DATA.evaluations
+        .filter(x=>x.studentId===s.id)
+        .sort((a,b)=>a.week-b.week);
+
+    if(!studentEvals.length){
 
       const row={
-
         'الطالب':s.name,
-
         'الجوال':s.phone,
-
-        'القاعة':
-          getRoom(s.roomId)?.name||'',
-
-        'المعلم':
-          getTeacher(
-            getRoom(s.roomId)?.teacherId
-          )?.name||'',
-
-        'المتوسط العام %':
-          e
-          ? studentOverallPercent(s.id)
-          : '',
-
-        'آخر أسبوع مُقيَّم':
-          e?.week||'',
-
-        'الملاحظة':
-          e?.note||''
-
+        'القاعة':room?.name||'',
+        'المعلم':teacher?.name||'',
+        'الأسبوع':'',
+        'متوسط الأسبوع':'',
+        'المتوسط العام':'',
+        'الملاحظة':''
       };
 
       CRITERIA.forEach(c=>{
-        row[c.label]=
-          e?.scores?.[c.key]||'';
+        row[c.label]='';
       });
 
-      return row;
+      rows.push(row);
+
+      return;
+    }
+
+    studentEvals.forEach(e=>{
+
+      const row={
+        'الطالب':s.name,
+        'الجوال':s.phone,
+        'القاعة':room?.name||'',
+        'المعلم':teacher?.name||'',
+        'الأسبوع':e.week,
+        'متوسط الأسبوع':avgScores(e.scores,CRITERIA,10),
+        'المتوسط العام':overall,
+        'الملاحظة':e.note||''
+      };
+
+      CRITERIA.forEach(c=>{
+        row[c.label]=e.scores?.[c.key]||'';
+      });
+
+      rows.push(row);
 
     });
+
+  });
 
   downloadWorkbook(
     {'الطلاب':rows},
@@ -2781,54 +2998,69 @@ function exportStudentsExcel(){
 
 function exportTeachersExcel(){
 
-  const rows=
-    DATA.teachers.map(t=>{
+  const rows=[];
 
-      const e=
-        DATA.teacherEvaluations.find(
-          x=>x.teacherId===t.id
+  DATA.teachers.forEach(t=>{
+
+    const deductions=
+      DATA.teacherDeductions
+        .filter(
+          d=>d.teacherId===t.id
+        )
+        .reduce(
+          (sum,d)=>sum+Number(d.points||0),
+          0
         );
 
-      const deductions=
-        DATA.teacherDeductions
-          .filter(
-            d=>d.teacherId===t.id
-          )
-          .reduce(
-            (sum,d)=>sum+Number(d.points||0),
-            0
-          );
+    const overall=getTeacherAverage(t.id);
+
+    const teacherEvals=
+      DATA.teacherEvaluations
+        .filter(x=>x.teacherId===t.id)
+        .sort((a,b)=>a.week-b.week);
+
+    if(!teacherEvals.length){
 
       const row={
-
         'المعلم':t.name,
-
         'الجوال':t.phone,
-
-        'متوسط التقييم':
-          e
-          ? avgScores(
-              e.scores,
-              TEACHER_CRITERIA
-            )
-          : '',
-
-        'الخصومات':
-          deductions,
-
-        'الملاحظات':
-          e?.note||''
-
+        'الأسبوع':'',
+        'متوسط الأسبوع':'',
+        'المتوسط العام':'',
+        'الخصومات':deductions,
+        'الملاحظات':''
       };
 
       TEACHER_CRITERIA.forEach(c=>{
-        row[c.label]=
-          e?.scores?.[c.key]||'';
+        row[c.label]='';
       });
 
-      return row;
+      rows.push(row);
+
+      return;
+    }
+
+    teacherEvals.forEach(e=>{
+
+      const row={
+        'المعلم':t.name,
+        'الجوال':t.phone,
+        'الأسبوع':e.week,
+        'متوسط الأسبوع':avgScores(e.scores,TEACHER_CRITERIA),
+        'المتوسط العام':overall,
+        'الخصومات':deductions,
+        'الملاحظات':e.note||''
+      };
+
+      TEACHER_CRITERIA.forEach(c=>{
+        row[c.label]=e.scores?.[c.key]||'';
+      });
+
+      rows.push(row);
 
     });
+
+  });
 
   downloadWorkbook(
     {'المعلمون':rows},
@@ -3033,13 +3265,9 @@ function renderTeacherEvaluate(){
 
   const rooms=teacherRooms();
 
-  if(!selectedTeacherWeek){
-    selectedTeacherWeek=getWeekKey();
-  }
-
   return panel(
 
-    'تقييم الطلاب (كشف أسبوعي)',
+    'تقييم الطلاب',
 
     `
     ${
@@ -3053,7 +3281,7 @@ function renderTeacherEvaluate(){
 
           <select
             class="input"
-            onchange="selectedTeacherRoomId=this.value;renderTeacher()">
+            onchange="selectedTeacherRoomId=this.value;selectedTeacherWeek=1;renderTeacher()">
 
             ${rooms.map(r=>`
 
@@ -3078,36 +3306,27 @@ function renderTeacherEvaluate(){
 
           </select>
 
-          <label>
-            الأسبوع
-          </label>
+          <label>الأسبوع</label>
 
           <select
             class="input"
-            onchange="selectedTeacherWeek=this.value;renderTeacher()">
+            onchange="selectedTeacherWeek=Number(this.value);renderTeacher()">
 
-            ${recentWeeks(10).map((w,i)=>`
+            ${Array.from(
+              {length:(getRoom(selectedTeacherRoomId)?.durationWeeks)||24},
+              (_,i)=>i+1
+            ).map(w=>`
 
               <option
                 value="${w}"
-                ${
-                  selectedTeacherWeek===w
-                  ?'selected'
-                  :''
-                }>
-
-                ${i===0?'هذا الأسبوع':w}
-
+                ${selectedTeacherWeek===w?'selected':''}>
+                أسبوع ${w}
               </option>
 
             `).join('')}
 
           </select>
 
-        </div>
-
-        <div class="notice">
-          هذا كشف أسماء الأسبوع الحالي — قيّم كل طالب مرة واحدة بالأسبوع (من 1 إلى 10 لكل معيار)، ثم اضغط "حفظ تقييم الأسبوع" مرة واحدة بالأسفل.
         </div>
 
         ${renderTeacherRoomStudents()}
@@ -3151,77 +3370,139 @@ function renderTeacherRoomStudents(){
     `;
   }
 
-  const week=selectedTeacherWeek||getWeekKey();
+  const week=selectedTeacherWeek||1;
 
   return `
 
+    <div class="notice">
+
+      كشف أسبوع ${week} — قيّم كل طالب من
+      1 إلى 10 لكل معيار، ثم اضغط "حفظ" مرة
+      واحدة أسفل الجدول لحفظ الكشف كاملاً.
+      تقييمات الأسابيع السابقة لا تتأثر.
+
+    </div>
+
     <form
-      class="table-wrap"
-      onsubmit="saveWeeklyEvaluations(event,'${room.id}','${week}')">
+      onsubmit="saveWeekEvaluations(event,'${room.id}',${week})">
 
-      <table class="roster-table">
+      <div class="table-wrap">
 
-        <thead>
-          <tr>
-            <th>الطالب</th>
-            ${CRITERIA.map(c=>`<th>${c.label}</th>`).join('')}
-            <th>ملاحظة</th>
-          </tr>
-        </thead>
+        <table>
 
-        <tbody>
+          <thead>
 
-          ${students.map(student=>{
+            <tr>
 
-            const evaluation=
-              DATA.evaluations.find(
-                e=>e.studentId===student.id && e.week===week
-              );
+              <th>الطالب</th>
 
-            const scores=evaluation?.scores||{};
+              ${CRITERIA.map(c=>`
+                <th>${esc(c.label)}</th>
+              `).join('')}
 
-            return `
-              <tr>
-                <td>
-                  <b>${esc(student.name)}</b>
-                  ${
-                    student.phone
-                    ? `<br><small>${esc(student.phone)}</small>`
-                    :''
-                  }
-                </td>
+              <th>ملاحظة</th>
+              <th>متوسط الأسبوع</th>
 
-                ${CRITERIA.map(c=>`
+            </tr>
+
+          </thead>
+
+          <tbody>
+
+            ${students.map(student=>{
+
+              const evaluation=
+                DATA.evaluations.find(
+                  e=>e.studentId===student.id && e.week===week
+                );
+
+              const scores=
+                evaluation?.scores||{};
+
+              return `
+
+                <tr>
+
                   <td>
-                    <input
-                      type="number"
-                      min="1" max="10" step="1"
-                      class="input roster-input"
-                      name="s_${student.id}_${c.key}"
-                      value="${scores[c.key]||''}"
-                      placeholder="1-10">
+                    ${esc(student.name)}
                   </td>
-                `).join('')}
 
-                <td>
-                  <input
-                    type="text"
-                    class="input"
-                    name="note_${student.id}"
-                    value="${esc(evaluation?.note||'')}"
-                    placeholder="اختياري">
-                </td>
-              </tr>
-            `;
+                  ${CRITERIA.map(c=>`
 
-          }).join('')}
+                    <td>
 
-        </tbody>
+                      <select
+                        name="score__${student.id}__${c.key}"
+                        class="input"
+                        required>
 
-      </table>
+                        <option value="">-</option>
 
-      <button class="btn primary" style="margin-top:16px;">
-        حفظ تقييم الأسبوع
+                        ${Array.from({length:10},(_,i)=>i+1).map(n=>`
+
+                          <option
+                            value="${n}"
+                            ${
+                              Number(scores[c.key]||0)===n
+                              ?'selected'
+                              :''
+                            }>
+                            ${n}
+                          </option>
+
+                        `).join('')}
+
+                      </select>
+
+                    </td>
+
+                  `).join('')}
+
+                  <td>
+
+                    <input
+                      type="text"
+                      name="note__${student.id}"
+                      class="input"
+                      placeholder="ملاحظة"
+                      value="${esc(evaluation?.note||'')}">
+
+                  </td>
+
+                  <td>
+
+                    ${
+                      evaluation
+                      ? `
+                        <b class="${scoreClass(
+                          avgScores(scores,CRITERIA,10)
+                        )}">
+                          ${avgScores(scores,CRITERIA,10)}%
+                        </b>
+                      `
+                      : '-'
+                    }
+
+                  </td>
+
+                </tr>
+
+              `;
+
+            }).join('')}
+
+          </tbody>
+
+        </table>
+
+      </div>
+
+      <button
+        class="btn primary block"
+        style="margin-top:14px;">
+
+        حفظ كشف أسبوع ${week} لكل الطلاب
+
       </button>
 
     </form>
@@ -3229,81 +3510,106 @@ function renderTeacherRoomStudents(){
   `;
 }
 
-async function saveWeeklyEvaluations(e,roomId,week){
+async function saveWeekEvaluations(e,roomId,week){
 
   e.preventDefault();
 
-  const room=getRoom(roomId);
+  const room=
+    getRoom(roomId);
 
   if(!room){
     toast('القاعة غير موجودة.',true);
     return;
   }
 
-  const students=DATA.students.filter(
-    s=>s.roomId===roomId
-  );
+  const students=
+    DATA.students.filter(
+      s=>s.roomId===roomId
+    );
+
+  const w=Number(week)||1;
 
   const f=new FormData(e.target);
 
-  const rows=students.map(student=>{
-
-    const payload={
-      student_id:student.id,
-      teacher_id:currentTeacherId,
-      room_id:roomId,
-      week,
-      note:f.get(`note_${student.id}`)||''
-    };
-
-    CRITERIA.forEach(c=>{
-      payload[c.key]=Number(
-        f.get(`s_${student.id}_${c.key}`)||0
-      );
-    });
-
-    return payload;
-
-  }).filter(row=>
-    CRITERIA.some(c=>Number(row[c.key]||0)>0)
-  );
-
-  if(!rows.length){
-    toast('أدخل تقييمًا لطالب واحد على الأقل.',true);
-    return;
-  }
-
   try{
 
-    const saved=await sb(
+    for(const student of students){
 
-      db()
-      .from('evaluations')
-      .upsert(
-        rows,
-        {
-          onConflict:'student_id,week'
-        }
-      )
-      .select()
+      const payload={
 
-    );
+        student_id:student.id,
 
-    const mapped=(saved||[]).map(mapEval);
+        teacher_id:currentTeacherId,
 
-    mapped.forEach(m=>{
-      DATA.evaluations=DATA.evaluations.filter(
-        x=>!(x.studentId===m.studentId && x.week===m.week)
-      );
-      DATA.evaluations.push(m);
-    });
+        room_id:roomId,
 
-    toast('تم حفظ تقييم الأسبوع لكل الطلاب');
+        week:w,
+
+        note:f.get(`note__${student.id}`)||''
+
+      };
+
+      CRITERIA.forEach(c=>{
+        payload[c.key]=Number(
+          f.get(`score__${student.id}__${c.key}`)||0
+        );
+      });
+
+      const existing=
+        DATA.evaluations.find(
+          x=>x.studentId===student.id && x.week===w
+        );
+
+      let row;
+
+      if(existing){
+
+        row=await sb(
+
+          db()
+          .from('evaluations')
+          .update(payload)
+          .eq('id',existing.id)
+          .select()
+          .single()
+
+        );
+
+      }else{
+
+        row=await sb(
+
+          db()
+          .from('evaluations')
+          .insert(payload)
+          .select()
+          .single()
+
+        );
+
+      }
+
+      const mapped=
+        mapEval(row);
+
+      DATA.evaluations=
+        DATA.evaluations.filter(
+          x=>!(x.studentId===student.id && x.week===w)
+        );
+
+      DATA.evaluations.push(mapped);
+
+    }
+
+    toast(`تم حفظ كشف أسبوع ${w} لجميع الطلاب`);
 
     renderTeacher();
 
     if(DATA.autoExport){
-      setTimeout(exportAllExcel,500);
+      setTimeout(
+        exportAllExcel,
+        500
+      );
     }
 
   }catch(x){
@@ -3993,24 +4299,41 @@ async function teacherChangePassword(e){
    ========================================================= */
 
 function getStudentAverage(studentId){
-  return studentOverallPercent(studentId);
+
+  const rows=
+    DATA.evaluations.filter(
+      x=>x.studentId===studentId
+    );
+
+  if(!rows.length){
+    return 0;
+  }
+
+  const total=rows.reduce(
+    (sum,e)=>sum+avgScores(e.scores,CRITERIA,10),
+    0
+  );
+
+  return Math.round(total/rows.length);
 }
 
 function getTeacherAverage(teacherId){
 
-  const e=
-    DATA.teacherEvaluations.find(
+  const rows=
+    DATA.teacherEvaluations.filter(
       x=>x.teacherId===teacherId
     );
 
-  if(!e){
+  if(!rows.length){
     return 0;
   }
 
-  return avgScores(
-    e.scores,
-    TEACHER_CRITERIA
+  const total=rows.reduce(
+    (sum,e)=>sum+avgScores(e.scores,TEACHER_CRITERIA),
+    0
   );
+
+  return Math.round(total/rows.length);
 }
 
 function getTeacherDeductionTotal(teacherId){
@@ -4430,6 +4753,8 @@ function selectTeacherRoom(id){
 
   selectedTeacherRoomId=id;
 
+  selectedTeacherWeek=1;
+
   teacherTab='evaluate';
 
   renderTeacher();
@@ -4558,6 +4883,52 @@ async function boot(){
 
     if(!session){
 
+      let savedTeacherId=null;
+
+      try{
+        savedTeacherId=
+          localStorage.getItem('saqifah:teacherSession');
+      }catch{}
+
+      if(savedTeacherId){
+
+        try{
+
+          await loadData();
+
+          const t=getTeacher(savedTeacherId);
+
+          if(t){
+
+            currentUser={codeLogin:true,name:t.name};
+            currentAdmin=false;
+            currentTeacherId=t.id;
+
+            selectedTeacherRoomId=
+              teacherRooms()[0]?.id||null;
+
+            teacherTab='evaluate';
+
+            showScreen('screen-teacher');
+
+            renderTeacher();
+
+            return;
+          }
+
+        }catch(e){
+
+          console.warn(
+            'تعذر استعادة جلسة المعلم:',
+            e
+          );
+        }
+
+        try{
+          localStorage.removeItem('saqifah:teacherSession');
+        }catch{}
+      }
+
       showScreen(
         'screen-role'
       );
@@ -4682,23 +5053,6 @@ async function boot(){
       'screen-role'
     );
   }
-}
-
-/* =========================================================
-   إصلاحات توافق مع الواجهة القديمة
-   ========================================================= */
-
-function populateTeacherSelect(){
-
-  const sel=
-    $('teacherSelect');
-
-  if(!sel) return;
-
-  sel.innerHTML=
-    '<option value="">استخدم البريد الإلكتروني لتسجيل الدخول</option>';
-
-  sel.style.display='none';
 }
 
 function saveData(){
