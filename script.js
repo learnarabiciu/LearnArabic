@@ -39,7 +39,7 @@ const AUTO_EXPORT_KEY = 'saqifah:autoExport';
    الاستخدام العشوائي. لا تستخدمه كبديل عن مفتاح Supabase
    الحساس (ذاك يبقى داخل Apps Script فقط ولا يوضع هنا).
    ========================================================= */
-const DRIVE_SYNC_WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbyeBQZ8jo7jL2rZtxshdGYGTjSR53bxLU__1fouvyhyux_wyQYJ2PbBWixX_wOSpuIu/exec';
+const DRIVE_SYNC_WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbxJZNXgBMatL6etcZiM_2tfkq3AlAmmmcVGlSuX058UmncpGPOb6A02TjBY-N3gFxEI/exec';
 const DRIVE_SYNC_SHARED_SECRET = 'LearnArabic_8432';
 
 let DATA = emptyData();
@@ -1505,8 +1505,7 @@ async function createTeacherDriveFolder(id){
     const result=await callDriveWebApp({
       action:'create_folder',
       teacherId:t.id,
-      teacherName:t.name,
-      weeks:getTeacherDurationWeeks(t.id)
+      teacherName:t.name
     });
 
     await sb(
@@ -1535,21 +1534,24 @@ async function createTeacherDriveFolder(id){
   }
 }
 
-async function syncTeacherDriveNow(tid,week){
+async function syncTeacherDriveNow(tid){
 
   try{
 
     toast('جاري مزامنة الملفات من Drive...');
 
-    await callDriveWebApp({
+    const result=await callDriveWebApp({
       action:'sync_now',
-      teacherId:tid,
-      week:Number(week)||1
+      teacherId:tid
     });
+
+    if(result?.result?.week){
+      adminTeacherEvalWeek=result.result.week;
+    }
 
     await refreshData();
 
-    toast('تمت المزامنة من Drive.');
+    toast('تمت المزامنة من Drive (الأسبوع '+(result?.result?.week||'')+').');
 
   }catch(x){
 
@@ -1768,7 +1770,7 @@ function renderTeacherEvaluationEditor(tid){
       <button
         type="button"
         class="btn secondary small"
-        onclick="syncTeacherDriveNow('${tid}',${week})">
+        onclick="syncTeacherDriveNow('${tid}')">
 
         🔄 مزامنة من Drive الآن
 
