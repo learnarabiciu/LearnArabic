@@ -51,6 +51,11 @@ let currentEmployeeId = null;
 let employeeTab = 'tasks';
 let adminStaffStatus = 'all';
 let adminStaffEmployee = 'all';
+let employeeFilter = 'all';
+let employeeStatusFilter = 'all';
+let staffDraft = [];
+let staffDraftDue = '';
+const NIL_UUID = '00000000-0000-0000-0000-000000000000';
 let selectedTeacherRoomId = null;
 let selectedTeacherWeek = 1;
 let adminTeacherEvalWeek = 1;
@@ -502,16 +507,12 @@ async function loadStaffData(){
 
   try{
 
-    let empQ=db().from('employees').select('*')
+    const empQ=db().from('employees')
+      .select(isAdmin?'*':'id,name,job_title')
       .order('created_at',{ascending:true});
 
-    let taskQ=db().from('tasks').select('*')
+    const taskQ=db().from('tasks').select('*')
       .order('created_at',{ascending:false});
-
-    if(!isAdmin){
-      empQ=empQ.eq('id',currentEmployeeId);
-      taskQ=taskQ.eq('employee_id',currentEmployeeId);
-    }
 
     const [emps,tasks]=await Promise.all([
       sb(empQ),
@@ -3518,6 +3519,8 @@ function renderAdminSettings(){
 
     </div>
 
+    ${renderWipeSection()}
+
     <div class="settings-section">
 
       <h3>
@@ -5651,52 +5654,9 @@ function renderAdminStaff(){
 
     <hr>
 
-    <h3 style="color:var(--purple);margin-bottom:12px;">
-      إسناد مهمة جديدة
-    </h3>
+    ${renderTaskDraftSection()}
 
-    <form
-      onsubmit="addTask(event)"
-      class="form-grid">
-
-      <select
-        id="taskEmployee"
-        class="input"
-        required>
-
-        <option value="">اختر الموظف</option>
-
-        ${DATA.employees.map(e=>`
-          <option value="${e.id}">
-            ${esc(e.name)}
-          </option>
-        `).join('')}
-
-      </select>
-
-      <input
-        id="taskDue"
-        type="date"
-        class="input"
-        title="تاريخ الاستحقاق (اختياري)">
-
-      <input
-        id="taskTitle"
-        class="input"
-        placeholder="المهمة"
-        required>
-
-      <textarea
-        id="taskDesc"
-        class="input"
-        rows="2"
-        placeholder="تفاصيل المهمة (اختياري)"></textarea>
-
-      <button class="btn primary">
-        إضافة المهمة
-      </button>
-
-    </form>
+    <hr>
 
     <h3 style="color:var(--purple);margin-bottom:12px;">
       لوحة المهام
@@ -5940,6 +5900,39 @@ function renderAdminStaff(){
       </table>
 
     </div>
+
+    <div class="deductions-box">
+
+      <h3>حذف بيانات الموظفين والمهام</h3>
+
+      <div class="notice">
+        الحذف نهائي ولا يمكن التراجع عنه. لحذف بيانات المنصة كلها
+        (طلاب، تقييمات، تقارير...) استخدم "الإعدادات ← حذف البيانات القديمة".
+      </div>
+
+      <div class="export-buttons" style="justify-content:flex-start;margin-top:0;">
+
+        <button
+          class="btn ghost"
+          onclick="clearStaffData('done')">
+          حذف المهام المنتهية (تمت) — ${c.done}
+        </button>
+
+        <button
+          class="btn danger"
+          onclick="clearStaffData('all')">
+          حذف جميع المهام — ${c.total}
+        </button>
+
+        <button
+          class="btn danger"
+          onclick="clearStaffData('everything')">
+          حذف كل شيء (الموظفين والمهام)
+        </button>
+
+      </div>
+
+    </div>
     `
   );
 }
@@ -6056,29 +6049,351 @@ async function deleteEmployee(id){
   }
 }
 
-async function addTask(e){
+function renderTaskDraftSection(){
 
-  e.preventDefault();
+  if(!DATA.employees.length){
+
+    return `
+      <div class="notice">
+        أضف موظفين أولاً (من قسم "الموظفون" أسفل الصفحة) ثم أسند المهام.
+      </div>
+    `;
+  }
+
+  return `
+
+    <h3 style="color:var(--purple);margin-bottom:12px;">
+      إضافة مهام وإسنادها
+    </h3>
+
+    <div class="notice">
+
+      اكتب المهام كلها هنا، كل مهمة في سطر مستقل،
+      ثم اضغط "تجهيز المهام" لتحديد الموظف أو
+      الموظفين المسند إليهم كل مهمة.
+
+    </div>
+
+    <div class="form-grid">
+
+      <textarea
+        id="bulkTasksText"
+        class="input"
+        rows="6"
+        placeholder="المهمة الأولى&#10;المهمة الثانية&#10;المهمة الثالثة"></textarea>
+
+      <input
+        id="bulkTasksDue"
+        type="date"
+        class="input"
+        value="${esc(staffDraftDue)}"
+        title="تاريخ الاستحقاق لكل المهام (اختياري)">
+
+      <button
+        type="button"
+        class="btn secondary"
+        onclick="prepareTaskDraft()">
+        تجهيز المهام
+      </button>
+
+    </div>
+
+    ${renderTaskDraftList()}
+
+  `;
+}
+
+function renderTaskDraftList(){
+
+  if(!staffDraft.length) return '';
+
+  return `
+
+    <div class="dashboard-highlight">
+
+      <h3>إسناد المهام (${staffDraft.length})</h3>
+
+      ${staffDraft.map((d,i)=>`
+
+        <div class="card-inner">
+
+          <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
+
+            <b>${i+1}. ${esc(d.title)}</b>
+
+            <span style="display:flex;gap:6px;flex-wrap:wrap;">
+
+              <button
+                type="button"
+                class="btn ghost small"
+                onclick="draftSelectAll(${i},true)">
+                كل الموظفين
+              </button>
+
+              <button
+                type="button"
+                class="btn ghost small"
+                onclick="draftSelectAll(${i},false)">
+                إلغاء التحديد
+              </button>
+
+              <button
+                type="button"
+                class="btn danger small"
+                onclick="removeDraftTask(${i})">
+                إزالة
+              </button>
+
+            </span>
+
+          </div>
+
+          <div class="assignee-grid">
+
+            ${DATA.employees.map(e=>`
+
+              <label class="assignee-chip">
+
+                <input
+                  type="checkbox"
+                  data-draft="${i}"
+                  ${d.employeeIds.includes(e.id)?'checked':''}
+                  onchange="toggleDraftEmployee(${i},'${e.id}',this.checked)">
+
+                <span>${esc(e.name)}</span>
+
+              </label>
+
+            `).join('')}
+
+          </div>
+
+        </div>
+
+      `).join('')}
+
+      <div style="display:flex;gap:10px;flex-wrap:wrap;">
+
+        <button
+          type="button"
+          class="btn primary"
+          onclick="saveTaskDraft()">
+          حفظ وإسناد المهام
+        </button>
+
+        <button
+          type="button"
+          class="btn ghost"
+          onclick="clearTaskDraft()">
+          إلغاء
+        </button>
+
+      </div>
+
+    </div>
+
+  `;
+}
+
+function prepareTaskDraft(){
+
+  const lines=
+    ($('bulkTasksText')?.value||'')
+      .split('\n')
+      .map(l=>l.trim())
+      .filter(Boolean);
+
+  if(!lines.length){
+
+    toast('اكتب مهمة واحدة على الأقل.',true);
+    return;
+  }
+
+  staffDraftDue=
+    $('bulkTasksDue')?.value||'';
+
+  lines.forEach(title=>{
+    staffDraft.push({title,employeeIds:[]});
+  });
+
+  renderAdmin();
+}
+
+function toggleDraftEmployee(i,id,checked){
+
+  const d=staffDraft[i];
+
+  if(!d) return;
+
+  d.employeeIds=
+    d.employeeIds.filter(x=>x!==id);
+
+  if(checked){
+    d.employeeIds.push(id);
+  }
+}
+
+function draftSelectAll(i,on){
+
+  const d=staffDraft[i];
+
+  if(!d) return;
+
+  d.employeeIds=
+    on?DATA.employees.map(e=>e.id):[];
+
+  document
+    .querySelectorAll(`input[data-draft="${i}"]`)
+    .forEach(c=>{c.checked=on;});
+}
+
+function removeDraftTask(i){
+
+  staffDraft.splice(i,1);
+
+  renderAdmin();
+}
+
+function clearTaskDraft(){
+
+  staffDraft=[];
+  staffDraftDue='';
+
+  renderAdmin();
+}
+
+async function saveTaskDraft(){
+
+  if(!staffDraft.length) return;
+
+  const missing=
+    staffDraft.findIndex(d=>!d.employeeIds.length);
+
+  if(missing!==-1){
+
+    toast(
+      `حدد موظفًا واحدًا على الأقل للمهمة رقم ${missing+1}.`,
+      true
+    );
+
+    return;
+  }
+
+  const rows=[];
+
+  staffDraft.forEach(d=>{
+
+    d.employeeIds.forEach(eid=>{
+
+      rows.push({
+        employee_id:eid,
+        title:d.title,
+        due_date:staffDraftDue||null,
+        status:'todo'
+      });
+    });
+  });
 
   try{
 
-    const row=await sb(
+    const inserted=await sb(
       db()
       .from('tasks')
-      .insert({
-        employee_id:$('taskEmployee').value,
-        title:$('taskTitle').value.trim(),
-        description:$('taskDesc').value.trim(),
-        due_date:$('taskDue').value||null,
-        status:'todo'
-      })
+      .insert(rows)
       .select()
-      .single()
     );
 
-    DATA.tasks.unshift(mapTask(row));
+    (inserted||[])
+      .map(mapTask)
+      .reverse()
+      .forEach(t=>DATA.tasks.unshift(t));
 
-    toast('تمت إضافة المهمة');
+    toast(
+      `تم إسناد ${staffDraft.length} مهمة (${rows.length} تكليف)`
+    );
+
+    staffDraft=[];
+    staffDraftDue='';
+
+    renderAdmin();
+
+  }catch(x){
+
+    toast(friendlyError(x),true);
+  }
+}
+
+async function clearStaffData(mode){
+
+  const total=DATA.tasks.length;
+  const done=DATA.tasks.filter(t=>t.status==='done').length;
+
+  if(mode==='done'){
+
+    if(!done){
+      toast('لا توجد مهام منتهية.');
+      return;
+    }
+
+    if(!confirm(`حذف ${done} مهمة منتهية؟`)) return;
+
+  }else{
+
+    const what=
+      mode==='everything'
+        ? `كل الموظفين (${DATA.employees.length}) وكل المهام (${total})`
+        : `كل المهام (${total})`;
+
+    if(
+      mode==='all' && !total ||
+      mode==='everything' && !total && !DATA.employees.length
+    ){
+      toast('لا توجد بيانات للحذف.');
+      return;
+    }
+
+    if(!confirm(`سيتم حذف ${what} نهائيًا. هل أنت متأكد؟`)) return;
+
+    if(prompt('للتأكيد اكتب كلمة: حذف')!=='حذف'){
+      toast('تم إلغاء الحذف.');
+      return;
+    }
+  }
+
+  try{
+
+    if(mode==='done'){
+
+      await sb(
+        db().from('tasks').delete().eq('status','done')
+      );
+
+      DATA.tasks=
+        DATA.tasks.filter(t=>t.status!=='done');
+
+    }else{
+
+      await sb(
+        db().from('tasks').delete().neq('id',NIL_UUID)
+      );
+
+      DATA.tasks=[];
+
+      if(mode==='everything'){
+
+        await sb(
+          db().from('employees').delete().neq('id',NIL_UUID)
+        );
+
+        DATA.employees=[];
+
+        adminStaffEmployee='all';
+        staffDraft=[];
+        staffDraftDue='';
+      }
+    }
+
+    toast('تم الحذف');
 
     renderAdmin();
 
@@ -6186,7 +6501,7 @@ function renderEmployeeNav(){
 
   n.innerHTML=navButton(
     'tasks',
-    'مهامي',
+    'لوحة المهام',
     employeeTab==='tasks',
     "employeeTab='tasks';renderEmployee()"
   );
@@ -6203,19 +6518,32 @@ function renderEmployee(){
 
   const emp=getEmployee(currentEmployeeId);
 
-  const mine=
-    DATA.tasks
-      .filter(t=>t.employeeId===currentEmployeeId)
-      .sort((a,b)=>{
-        const order={todo:0,doing:1,done:2};
-        return (order[a.status]-order[b.status]) ||
-          String(a.dueDate||'9999').localeCompare(String(b.dueDate||'9999'));
-      });
+  const all=DATA.tasks;
 
-  const c=taskCounts(mine);
+  const c=taskCounts(all);
+
+  const mineAll=
+    all.filter(t=>t.employeeId===currentEmployeeId);
+
+  let tasks=all.slice();
+
+  if(employeeFilter==='mine'){
+    tasks=tasks.filter(t=>t.employeeId===currentEmployeeId);
+  }
+
+  if(employeeStatusFilter!=='all'){
+    tasks=tasks.filter(t=>t.status===employeeStatusFilter);
+  }
+
+  const order={todo:0,doing:1,done:2};
+
+  tasks.sort((a,b)=>
+    (order[a.status]-order[b.status]) ||
+    String(a.dueDate||'9999').localeCompare(String(b.dueDate||'9999'))
+  );
 
   m.innerHTML=panel(
-    `مهامي${emp?.jobTitle?` — ${esc(emp.jobTitle)}`:''}`,
+    `لوحة المهام${emp?.jobTitle?` — ${esc(emp.jobTitle)}`:''}`,
 
     `
     <div class="stats-grid">
@@ -6242,89 +6570,394 @@ function renderEmployee(){
 
     </div>
 
-    ${
-      c.total
-      ? `
-        <div class="dashboard-highlight">
+    <div class="dashboard-highlight">
+
+      <h3>إنجاز الموظفين</h3>
+
+      ${DATA.employees.map(e=>{
+
+        const mine=
+          DATA.tasks.filter(t=>t.employeeId===e.id);
+
+        const pct=donePercent(mine);
+
+        return `
           <div class="progress-row">
-            <span class="progress-label">نسبة الإنجاز</span>
-            ${progressBarHtml(donePercent(mine))}
-            <span class="progress-pct">${donePercent(mine)}%</span>
+
+            <span class="progress-label">
+              ${esc(e.name)}${e.id===currentEmployeeId?' (أنت)':''}
+            </span>
+
+            ${
+              mine.length
+              ? progressBarHtml(pct)
+              : '<div class="progress-track"></div>'
+            }
+
+            <span class="progress-pct">
+              ${mine.length?pct+'%':'-'}
+            </span>
+
           </div>
-        </div>
-      `
-      : ''
-    }
+        `;
+      }).join('')}
 
-    ${
-      mine.length
-      ? `
-        <div class="student-evaluation-list">
+    </div>
 
-          ${mine.map(t=>`
+    <div class="toolbar">
 
-            <div class="evaluation-card">
+      <label>عرض</label>
 
-              <div class="evaluation-header">
+      <select
+        class="input"
+        style="width:auto;"
+        onchange="employeeFilter=this.value;renderEmployee()">
 
-                <div>
-                  <h3>${esc(t.title)}</h3>
-                  ${
-                    t.dueDate
-                    ? `<small>الاستحقاق: ${fmtDate(t.dueDate)}</small>`
-                    : ''
-                  }
-                </div>
+        <option value="all" ${employeeFilter==='all'?'selected':''}>
+          كل المهام
+        </option>
 
-                <div>
-                  ${statusBadge(t)}
-                </div>
+        <option value="mine" ${employeeFilter==='mine'?'selected':''}>
+          مهامي فقط (${mineAll.length})
+        </option>
 
-              </div>
+      </select>
 
-              ${
-                t.description
-                ? `<p style="font-size:13.5px;line-height:1.8;margin-bottom:12px;white-space:pre-wrap;">${esc(t.description)}</p>`
-                : ''
-              }
+      <label>الحالة</label>
 
-              <div class="status-btns">
+      <select
+        class="input"
+        style="width:auto;"
+        onchange="employeeStatusFilter=this.value;renderEmployee()">
 
-                ${TASK_STATUSES.map(s=>`
+        <option value="all">الكل</option>
 
-                  <button
-                    class="status-btn ${s.key} ${t.status===s.key?'active':''}"
-                    onclick="setTaskStatus('${t.id}','${s.key}')">
+        ${TASK_STATUSES.map(s=>`
+          <option
+            value="${s.key}"
+            ${employeeStatusFilter===s.key?'selected':''}>
+            ${s.label}
+          </option>
+        `).join('')}
 
-                    ${s.label}
+      </select>
 
-                  </button>
+    </div>
 
-                `).join('')}
+    <div class="table-wrap">
 
-              </div>
+      <table>
 
-              <input
-                class="input"
-                style="margin-top:12px;"
-                placeholder="ملاحظة للمدير (اختياري) — تُحفظ عند الخروج من الخانة"
-                value="${esc(t.employeeNote)}"
-                onchange="saveTaskNote('${t.id}',this.value)">
+        <thead>
+          <tr>
+            <th>الموظف</th>
+            <th>المهمة</th>
+            <th>الاستحقاق</th>
+            <th>الحالة</th>
+            <th>تحديث الحالة</th>
+            <th>ملاحظة</th>
+          </tr>
+        </thead>
 
-            </div>
+        <tbody>
 
-          `).join('')}
+          ${
+            tasks.length
+            ? tasks.map(t=>{
 
-        </div>
-      `
-      : `
-        <div class="empty">
-          لا توجد مهام مسندة إليك حاليًا.
-        </div>
-      `
-    }
+                const mine=
+                  t.employeeId===currentEmployeeId;
+
+                return `
+
+                  <tr class="${mine?'mine-row':''}">
+
+                    <td>
+                      ${esc(getEmployee(t.employeeId)?.name||'-')}
+                      ${mine?'<span class="mine-tag">مهمتي</span>':''}
+                    </td>
+
+                    <td>
+                      <b>${esc(t.title)}</b>
+                      ${
+                        t.description
+                        ? `<div class="hint" style="text-align:right;margin-top:4px;white-space:pre-wrap;">${esc(t.description)}</div>`
+                        : ''
+                      }
+                    </td>
+
+                    <td>
+                      ${t.dueDate?fmtDate(t.dueDate):'-'}
+                    </td>
+
+                    <td>
+                      ${statusBadge(t)}
+                    </td>
+
+                    <td>
+                      ${statusSelect(t)}
+                    </td>
+
+                    <td>
+                      ${
+                        mine
+                        ? `
+                          <input
+                            class="input"
+                            placeholder="ملاحظة (اختياري)"
+                            value="${esc(t.employeeNote)}"
+                            onchange="saveTaskNote('${t.id}',this.value)">
+                        `
+                        : esc(t.employeeNote||'-')
+                      }
+                    </td>
+
+                  </tr>
+
+                `;
+              }).join('')
+            : `
+              <tr>
+                <td colspan="6">
+                  لا توجد مهام مطابقة.
+                </td>
+              </tr>
+            `
+          }
+
+        </tbody>
+
+      </table>
+
+    </div>
     `
   );
+}
+
+/* =========================================================
+   حذف البيانات القديمة (الإعدادات)
+   ========================================================= */
+
+const WIPE_ITEMS = [
+  {key:'evaluations',  label:'تقييمات الطلاب',        table:'evaluations',        col:'id',      needs:[],
+   count:()=>DATA.evaluations.length},
+  {key:'teacherEvals', label:'تقييمات المعلمين',      table:'teacher_evaluations',col:'id',      needs:[],
+   count:()=>DATA.teacherEvaluations.length},
+  {key:'deductions',   label:'خصومات المعلمين',       table:'teacher_deductions', col:'id',      needs:[],
+   count:()=>DATA.teacherDeductions.length},
+  {key:'reports',      label:'التقارير الأسبوعية',    table:'reports',            col:'id',      needs:[],
+   count:()=>DATA.reports.length},
+  {key:'announcements',label:'الإعلانات',             table:'announcements',      col:'id',      needs:[],
+   count:()=>DATA.announcements.length},
+  {key:'champions',    label:'الطلاب المتميزون المحفوظون',table:'champions',      col:'room_id', needs:[],
+   count:()=>Object.keys(DATA.champions).length},
+  {key:'students',     label:'الطلاب',                table:'students',           col:'id',      needs:['evaluations','champions'],
+   count:()=>DATA.students.length},
+  {key:'rooms',        label:'القاعات والدورات',      table:'rooms',              col:'id',      needs:['students','reports'],
+   count:()=>DATA.rooms.length},
+  {key:'teachers',     label:'المعلمون',              table:'teachers',           col:'id',      needs:['rooms','teacherEvals','deductions','reports','evaluations'],
+   count:()=>DATA.teachers.length},
+  {key:'tasks',        label:'المهام',                table:'tasks',              col:'id',      needs:[],
+   count:()=>DATA.tasks.length},
+  {key:'employees',    label:'الموظفون',              table:'employees',          col:'id',      needs:['tasks'],
+   count:()=>DATA.employees.length}
+];
+
+function renderWipeSection(){
+
+  return `
+
+    <div class="settings-section">
+
+      <h3>حذف البيانات القديمة</h3>
+
+      <div class="notice">
+
+        اختر ما تريد حذفه ثم اضغط "حذف المحدد". الحذف نهائي
+        ولا يمكن التراجع عنه، ويُنصح بتنزيل نسخة Excel قبله.
+        حذف عنصر يحذف تلقائيًا ما يرتبط به (مثلاً حذف الطلاب
+        يحذف تقييماتهم، وحذف المعلمين يحذف قاعاتهم وتقييماتهم).
+
+      </div>
+
+      <div class="assignee-grid" style="margin-bottom:14px;">
+
+        ${WIPE_ITEMS.map(i=>`
+
+          <label class="assignee-chip">
+
+            <input
+              type="checkbox"
+              class="wipe-check"
+              value="${i.key}">
+
+            <span>${i.label} (${i.count()})</span>
+
+          </label>
+
+        `).join('')}
+
+      </div>
+
+      <div class="export-buttons" style="justify-content:flex-start;margin-top:0;">
+
+        <button
+          type="button"
+          class="btn ghost"
+          onclick="exportAllExcel()">
+          تنزيل نسخة Excel أولاً
+        </button>
+
+        <button
+          type="button"
+          class="btn ghost"
+          onclick="wipeSelectAll(true)">
+          تحديد الكل
+        </button>
+
+        <button
+          type="button"
+          class="btn ghost"
+          onclick="wipeSelectAll(false)">
+          إلغاء التحديد
+        </button>
+
+        <button
+          type="button"
+          class="btn danger"
+          onclick="wipeSelected()">
+          حذف المحدد
+        </button>
+
+      </div>
+
+    </div>
+
+  `;
+}
+
+function wipeSelectAll(on){
+
+  document
+    .querySelectorAll('.wipe-check')
+    .forEach(c=>{c.checked=on;});
+}
+
+function wipeClosure(keys){
+
+  const set=new Set(keys);
+
+  let changed=true;
+
+  while(changed){
+
+    changed=false;
+
+    WIPE_ITEMS.forEach(i=>{
+
+      if(!set.has(i.key)) return;
+
+      i.needs.forEach(n=>{
+
+        if(!set.has(n)){
+          set.add(n);
+          changed=true;
+        }
+      });
+    });
+  }
+
+  return WIPE_ITEMS.filter(i=>set.has(i.key));
+}
+
+async function wipeSelected(){
+
+  const keys=
+    Array.from(document.querySelectorAll('.wipe-check:checked'))
+      .map(c=>c.value);
+
+  if(!keys.length){
+
+    toast('حدد ما تريد حذفه أولاً.',true);
+    return;
+  }
+
+  const items=wipeClosure(keys);
+
+  const lines=
+    items.map(i=>`• ${i.label}: ${i.count()}`).join('\n');
+
+  const extra=
+    items.length>keys.length
+      ? '\n\n(أُضيفت تلقائيًا بيانات مرتبطة بما حددته)'
+      : '';
+
+  if(!confirm(
+    `سيتم حذف البيانات التالية نهائيًا:\n\n${lines}${extra}\n\nهل أنت متأكد؟`
+  )){
+    return;
+  }
+
+  if(prompt('للتأكيد اكتب كلمة: حذف')!=='حذف'){
+
+    toast('تم إلغاء الحذف.');
+    return;
+  }
+
+  const warnings=[];
+
+  try{
+
+    for(const i of items){
+
+      const expected=i.count();
+
+      if(!expected) continue;
+
+      const deleted=await sb(
+        db()
+        .from(i.table)
+        .delete()
+        .neq(i.col,NIL_UUID)
+        .select(i.col)
+      );
+
+      const n=(deleted||[]).length;
+
+      if(n<expected){
+        warnings.push(`${i.label}: حُذف ${n} من ${expected}`);
+      }
+    }
+
+  }catch(x){
+
+    toast(friendlyError(x),true);
+  }
+
+  try{
+    await loadData();
+  }catch(e){
+    console.warn(e);
+  }
+
+  staffDraft=[];
+  staffDraftDue='';
+  adminStaffEmployee='all';
+
+  renderAdmin();
+
+  if(warnings.length){
+
+    toast(
+      'لم يُحذف كل شيء — '+warnings.join(' | ')+
+      ' (شغّل ملف cleanup_policies.sql في Supabase ثم أعد المحاولة)',
+      true
+    );
+
+  }else{
+
+    toast('تم حذف البيانات المحددة.');
+  }
 }
 
 function saveData(){
