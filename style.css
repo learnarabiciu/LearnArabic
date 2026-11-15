@@ -270,3 +270,11 @@ tr:last-child td{border-bottom:none;}
 .status-btn.todo.active{background:var(--red);color:var(--white);}
 .status-btn.doing.active{background:var(--orange-dark);color:var(--white);}
 .status-btn.done.active{background:var(--green);color:var(--white);}
+
+/* ---------- Task assignment chips + employee board ---------- */
+.assignee-grid{display:flex;flex-wrap:wrap;gap:8px;}
+.assignee-chip{display:flex;align-items:center;gap:6px;padding:7px 12px;border:1.5px solid var(--line);border-radius:999px;background:#fcfaff;font-size:13px;cursor:pointer;transition:.15s;}
+.assignee-chip input{accent-color:var(--purple);}
+.assignee-chip:has(input:checked){border-color:var(--purple);background:#f4eef7;font-weight:700;}
+tr.mine-row td{background:#fefaf1;}
+.mine-tag{display:inline-block;margin-inline-start:6px;padding:2px 9px;border-radius:999px;background:var(--orange);color:var(--purple-dark);font-size:11.5px;font-weight:800;}
