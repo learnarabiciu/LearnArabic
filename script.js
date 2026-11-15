@@ -47,6 +47,10 @@ let currentUser = null;
 let currentProfile = null;
 let currentAdmin = false;
 let currentTeacherId = null;
+let currentEmployeeId = null;
+let employeeTab = 'tasks';
+let adminStaffStatus = 'all';
+let adminStaffEmployee = 'all';
 let selectedTeacherRoomId = null;
 let selectedTeacherWeek = 1;
 let adminTeacherEvalWeek = 1;
@@ -64,7 +68,9 @@ function emptyData(){
     champions:{},
     autoExport:false,
     teacherEvaluations:[],
-    teacherDeductions:[]
+    teacherDeductions:[],
+    employees:[],
+    tasks:[]
   };
 }
 
@@ -129,6 +135,44 @@ function getTeacher(id){
 
 function getStudent(id){
   return DATA.students.find(x=>x.id===id);
+}
+
+function getEmployee(id){
+  return DATA.employees.find(x=>x.id===id);
+}
+
+const TASK_STATUSES = [
+  {key:'todo',  label:'لم تتم'},
+  {key:'doing', label:'قيد العمل'},
+  {key:'done',  label:'تمت'}
+];
+
+function taskStatusLabel(k){
+  return TASK_STATUSES.find(x=>x.key===k)?.label||'لم تتم';
+}
+
+function mapEmployee(r){
+  return {
+    id:r.id,
+    name:r.name,
+    phone:r.phone||'',
+    jobTitle:r.job_title||'',
+    loginCode:r.login_code||''
+  };
+}
+
+function mapTask(r){
+  return {
+    id:r.id,
+    employeeId:r.employee_id,
+    title:r.title||'',
+    description:r.description||'',
+    status:r.status||'todo',
+    dueDate:r.due_date||'',
+    employeeNote:r.employee_note||'',
+    createdAt:r.created_at||'',
+    updatedAt:r.updated_at||''
+  };
 }
 
 function teacherRooms(){
@@ -442,6 +486,48 @@ async function loadData(){
 
   DATA.autoExport=
     localStorage.getItem(AUTO_EXPORT_KEY)==='1';
+
+  await loadStaffData();
+}
+
+async function loadStaffData(){
+
+  DATA.employees=[];
+  DATA.tasks=[];
+
+  const isAdmin=
+    currentAdmin || currentProfile?.role==='admin';
+
+  if(!isAdmin && !currentEmployeeId) return;
+
+  try{
+
+    let empQ=db().from('employees').select('*')
+      .order('created_at',{ascending:true});
+
+    let taskQ=db().from('tasks').select('*')
+      .order('created_at',{ascending:false});
+
+    if(!isAdmin){
+      empQ=empQ.eq('id',currentEmployeeId);
+      taskQ=taskQ.eq('employee_id',currentEmployeeId);
+    }
+
+    const [emps,tasks]=await Promise.all([
+      sb(empQ),
+      sb(taskQ)
+    ]);
+
+    DATA.employees=(emps||[]).map(mapEmployee);
+    DATA.tasks=(tasks||[]).map(mapTask);
+
+  }catch(e){
+
+    console.warn(
+      'تعذر تحميل الموظفين/المهام (هل تم إنشاء الجداول؟):',
+      e
+    );
+  }
 }
 
 /* =========================================================
@@ -455,6 +541,106 @@ function setupLoginUI(){
   if(!role) return;
 
   populateTeacherSelect();
+  populateEmployeeSelect();
+}
+
+async function populateEmployeeSelect(){
+
+  const sel=$('employeeSelect');
+
+  if(!sel) return;
+
+  sel.innerHTML=
+    '<option value="">جاري تحميل الأسماء...</option>';
+
+  try{
+
+    const rows=await sb(
+      db()
+      .from('employees')
+      .select('id,name')
+      .order('name',{ascending:true})
+    );
+
+    sel.innerHTML=
+      '<option value="">اختر اسمك...</option>'+
+      (rows||[]).map(t=>`
+        <option value="${t.id}">${esc(t.name)}</option>
+      `).join('');
+
+  }catch(e){
+
+    sel.innerHTML=
+      '<option value="">لا يوجد موظفون</option>';
+  }
+}
+
+async function employeeCodeLogin(){
+
+  try{
+
+    const employeeId=
+      $('employeeSelect')?.value;
+
+    const code=
+      $('employeeCodeInput')?.value.trim();
+
+    if(!employeeId||!code){
+
+      toast(
+        'اختر اسمك وأدخل كود الدخول.',
+        true
+      );
+
+      return;
+    }
+
+    const row=await sb(
+      db()
+      .from('employees')
+      .select('*')
+      .eq('id',employeeId)
+      .eq('login_code',code)
+      .maybeSingle()
+    );
+
+    if(!row){
+
+      toast(
+        'الكود غير صحيح.',
+        true
+      );
+
+      return;
+    }
+
+    currentUser={employeeLogin:true,name:row.name};
+    currentProfile=null;
+    currentAdmin=false;
+    currentTeacherId=null;
+    currentEmployeeId=row.id;
+
+    try{
+      localStorage.setItem('saqifah:employeeSession',row.id);
+    }catch{}
+
+    await loadData();
+
+    employeeTab='tasks';
+
+    showScreen('screen-employee');
+
+    renderEmployee();
+
+    toast('تم تسجيل الدخول بنجاح');
+
+  }catch(e){
+
+    toast(
+      friendlyError(e),
+      true
+    );
+  }
 }
 
 async function populateTeacherSelect(){
@@ -654,6 +840,7 @@ function resetSession(){
   currentProfile=null;
   currentAdmin=false;
   currentTeacherId=null;
+  currentEmployeeId=null;
 
 }
 
@@ -661,7 +848,13 @@ async function logout(){
 
   try{
 
-    if(currentUser?.codeLogin){
+    if(currentUser?.employeeLogin){
+
+      localStorage.removeItem(
+        'saqifah:employeeSession'
+      );
+
+    }else if(currentUser?.codeLogin){
 
       localStorage.removeItem(
         'saqifah:teacherSession'
@@ -781,6 +974,13 @@ function renderAdminNav(){
     ),
 
     navButton(
+      'staff',
+      'الموظفون والمهام',
+      adminTab==='staff',
+      "adminTab='staff';renderAdmin()"
+    ),
+
+    navButton(
       'champion',
       'الطلاب المتميزون',
       adminTab==='champion',
@@ -871,6 +1071,8 @@ function renderAdmin(){
     reports:renderAdminReports,
 
     announce:renderAdminAnnouncements,
+
+    staff:renderAdminStaff,
 
     champion:renderAdminChampion,
 
@@ -5114,6 +5316,51 @@ async function boot(){
         }catch{}
       }
 
+      let savedEmployeeId=null;
+
+      try{
+        savedEmployeeId=
+          localStorage.getItem('saqifah:employeeSession');
+      }catch{}
+
+      if(savedEmployeeId){
+
+        try{
+
+          currentEmployeeId=savedEmployeeId;
+
+          await loadData();
+
+          const emp=getEmployee(savedEmployeeId);
+
+          if(emp){
+
+            currentUser={employeeLogin:true,name:emp.name};
+            currentAdmin=false;
+            employeeTab='tasks';
+
+            showScreen('screen-employee');
+
+            renderEmployee();
+
+            return;
+          }
+
+        }catch(e){
+
+          console.warn(
+            'تعذر استعادة جلسة الموظف:',
+            e
+          );
+        }
+
+        currentEmployeeId=null;
+
+        try{
+          localStorage.removeItem('saqifah:employeeSession');
+        }catch{}
+      }
+
       showScreen(
         'screen-role'
       );
@@ -5240,6 +5487,846 @@ async function boot(){
   }
 }
 
+/* =========================================================
+   الموظفون والمهام
+   ========================================================= */
+
+function taskCounts(list){
+
+  return {
+    total:list.length,
+    todo:list.filter(t=>t.status==='todo').length,
+    doing:list.filter(t=>t.status==='doing').length,
+    done:list.filter(t=>t.status==='done').length
+  };
+}
+
+function donePercent(list){
+
+  if(!list.length) return 0;
+
+  return Math.round(
+    list.filter(t=>t.status==='done').length/list.length*100
+  );
+}
+
+function isOverdue(t){
+
+  if(!t.dueDate || t.status==='done') return false;
+
+  return t.dueDate < new Date().toISOString().slice(0,10);
+}
+
+function statusBadge(t){
+
+  return `
+    <span class="status-badge ${t.status}">
+      ${taskStatusLabel(t.status)}
+    </span>
+    ${
+      isOverdue(t)
+      ? '<span class="status-badge overdue">متأخرة</span>'
+      : ''
+    }
+  `;
+}
+
+function statusSelect(task){
+
+  return `
+    <select
+      class="input"
+      onchange="setTaskStatus('${task.id}',this.value)">
+
+      ${TASK_STATUSES.map(s=>`
+        <option
+          value="${s.key}"
+          ${task.status===s.key?'selected':''}>
+          ${s.label}
+        </option>
+      `).join('')}
+
+    </select>
+  `;
+}
+
+function rerenderStaffViews(){
+
+  if(currentAdmin){
+    renderAdmin();
+  }else if(currentEmployeeId){
+    renderEmployee();
+  }
+}
+
+/* ---------- لوحة الإدارة ---------- */
+
+function renderAdminStaff(){
+
+  const all=DATA.tasks;
+  const c=taskCounts(all);
+
+  let tasks=all.slice();
+
+  if(adminStaffStatus!=='all'){
+    tasks=tasks.filter(t=>t.status===adminStaffStatus);
+  }
+
+  if(adminStaffEmployee!=='all'){
+    tasks=tasks.filter(t=>t.employeeId===adminStaffEmployee);
+  }
+
+  const order={todo:0,doing:1,done:2};
+
+  tasks.sort((a,b)=>
+    (order[a.status]-order[b.status]) ||
+    String(a.dueDate||'9999').localeCompare(String(b.dueDate||'9999'))
+  );
+
+  return panel(
+    'الموظفون والمهام',
+
+    `
+    <div class="stats-grid">
+
+      <div class="stat-card">
+        <strong>${c.total}</strong>
+        <span>إجمالي المهام</span>
+      </div>
+
+      <div class="stat-card">
+        <strong>${c.todo}</strong>
+        <span>لم تتم</span>
+      </div>
+
+      <div class="stat-card">
+        <strong>${c.doing}</strong>
+        <span>قيد العمل</span>
+      </div>
+
+      <div class="stat-card">
+        <strong>${c.done}</strong>
+        <span>تمت</span>
+      </div>
+
+    </div>
+
+    <div class="dashboard-highlight">
+
+      <h3>إنجاز الموظفين</h3>
+
+      ${
+        DATA.employees.length
+        ? DATA.employees.map(e=>{
+
+            const mine=
+              DATA.tasks.filter(t=>t.employeeId===e.id);
+
+            const pct=donePercent(mine);
+
+            return `
+              <div class="progress-row">
+
+                <span class="progress-label">
+                  ${esc(e.name)}
+                </span>
+
+                ${
+                  mine.length
+                  ? progressBarHtml(pct)
+                  : '<div class="progress-track"></div>'
+                }
+
+                <span class="progress-pct">
+                  ${mine.length?pct+'%':'-'}
+                </span>
+
+              </div>
+            `;
+          }).join('')
+        : '<div class="empty">أضف موظفين أولاً.</div>'
+      }
+
+    </div>
+
+    <hr>
+
+    <h3 style="color:var(--purple);margin-bottom:12px;">
+      إسناد مهمة جديدة
+    </h3>
+
+    <form
+      onsubmit="addTask(event)"
+      class="form-grid">
+
+      <select
+        id="taskEmployee"
+        class="input"
+        required>
+
+        <option value="">اختر الموظف</option>
+
+        ${DATA.employees.map(e=>`
+          <option value="${e.id}">
+            ${esc(e.name)}
+          </option>
+        `).join('')}
+
+      </select>
+
+      <input
+        id="taskDue"
+        type="date"
+        class="input"
+        title="تاريخ الاستحقاق (اختياري)">
+
+      <input
+        id="taskTitle"
+        class="input"
+        placeholder="المهمة"
+        required>
+
+      <textarea
+        id="taskDesc"
+        class="input"
+        rows="2"
+        placeholder="تفاصيل المهمة (اختياري)"></textarea>
+
+      <button class="btn primary">
+        إضافة المهمة
+      </button>
+
+    </form>
+
+    <h3 style="color:var(--purple);margin-bottom:12px;">
+      لوحة المهام
+    </h3>
+
+    <div class="toolbar">
+
+      <label>الحالة</label>
+
+      <select
+        class="input"
+        style="width:auto;"
+        onchange="adminStaffStatus=this.value;renderAdmin()">
+
+        <option value="all">الكل</option>
+
+        ${TASK_STATUSES.map(s=>`
+          <option
+            value="${s.key}"
+            ${adminStaffStatus===s.key?'selected':''}>
+            ${s.label}
+          </option>
+        `).join('')}
+
+      </select>
+
+      <label>الموظف</label>
+
+      <select
+        class="input"
+        style="width:auto;"
+        onchange="adminStaffEmployee=this.value;renderAdmin()">
+
+        <option value="all">الكل</option>
+
+        ${DATA.employees.map(e=>`
+          <option
+            value="${e.id}"
+            ${adminStaffEmployee===e.id?'selected':''}>
+            ${esc(e.name)}
+          </option>
+        `).join('')}
+
+      </select>
+
+    </div>
+
+    <div class="table-wrap">
+
+      <table>
+
+        <thead>
+          <tr>
+            <th>الموظف</th>
+            <th>المهمة</th>
+            <th>الاستحقاق</th>
+            <th>الحالة</th>
+            <th>تغيير الحالة</th>
+            <th>ملاحظة الموظف</th>
+            <th></th>
+          </tr>
+        </thead>
+
+        <tbody>
+
+          ${
+            tasks.length
+            ? tasks.map(t=>`
+
+              <tr>
+
+                <td>
+                  ${esc(getEmployee(t.employeeId)?.name||'-')}
+                </td>
+
+                <td>
+                  <b>${esc(t.title)}</b>
+                  ${
+                    t.description
+                    ? `<div class="hint" style="text-align:right;margin-top:4px;white-space:pre-wrap;">${esc(t.description)}</div>`
+                    : ''
+                  }
+                </td>
+
+                <td>
+                  ${t.dueDate?fmtDate(t.dueDate):'-'}
+                </td>
+
+                <td>
+                  ${statusBadge(t)}
+                </td>
+
+                <td>
+                  ${statusSelect(t)}
+                </td>
+
+                <td>
+                  ${esc(t.employeeNote||'-')}
+                </td>
+
+                <td>
+                  <button
+                    class="btn danger small"
+                    onclick="deleteTask('${t.id}')">
+                    حذف
+                  </button>
+                </td>
+
+              </tr>
+
+            `).join('')
+            : `
+              <tr>
+                <td colspan="7">
+                  لا توجد مهام مطابقة.
+                </td>
+              </tr>
+            `
+          }
+
+        </tbody>
+
+      </table>
+
+    </div>
+
+    <hr>
+
+    <h3 style="color:var(--purple);margin-bottom:12px;">
+      الموظفون
+    </h3>
+
+    <div class="notice">
+
+      عند إضافة موظف يتم توليد كود دخول خاص به
+      تلقائيًا. أعطه اسمه والكود ليدخل من
+      الصفحة الرئيسية (خانة "الموظف/ـة") ويرى
+      مهامه ويحدّث حالتها.
+
+    </div>
+
+    <form
+      onsubmit="addEmployee(event)"
+      class="form-grid">
+
+      <input
+        id="employeeName"
+        class="input"
+        placeholder="اسم الموظف/ـة"
+        required>
+
+      <input
+        id="employeeJob"
+        class="input"
+        placeholder="المسمى الوظيفي (اختياري)">
+
+      <input
+        id="employeePhone"
+        class="input"
+        placeholder="رقم الجوال (اختياري)">
+
+      <button class="btn primary">
+        إضافة موظف
+      </button>
+
+    </form>
+
+    <div class="table-wrap">
+
+      <table>
+
+        <thead>
+          <tr>
+            <th>الاسم</th>
+            <th>المسمى</th>
+            <th>الجوال</th>
+            <th>كود الدخول</th>
+            <th>المهام</th>
+            <th></th>
+          </tr>
+        </thead>
+
+        <tbody>
+
+          ${
+            DATA.employees.length
+            ? DATA.employees.map(e=>{
+
+                const mine=
+                  taskCounts(
+                    DATA.tasks.filter(t=>t.employeeId===e.id)
+                  );
+
+                return `
+                  <tr>
+
+                    <td>${esc(e.name)}</td>
+
+                    <td>${esc(e.jobTitle||'-')}</td>
+
+                    <td>${esc(e.phone||'-')}</td>
+
+                    <td class="ltr">
+                      <strong>${esc(e.loginCode||'-')}</strong>
+                    </td>
+
+                    <td>
+                      ${mine.done}/${mine.total} تمت
+                    </td>
+
+                    <td style="display:flex;gap:6px;flex-wrap:wrap;">
+
+                      <button
+                        class="btn ghost small"
+                        onclick="regenerateEmployeeCode('${e.id}')">
+                        كود جديد
+                      </button>
+
+                      <button
+                        class="btn danger small"
+                        onclick="deleteEmployee('${e.id}')">
+                        حذف
+                      </button>
+
+                    </td>
+
+                  </tr>
+                `;
+              }).join('')
+            : `
+              <tr>
+                <td colspan="6">
+                  لا يوجد موظفون حتى الآن.
+                </td>
+              </tr>
+            `
+          }
+
+        </tbody>
+
+      </table>
+
+    </div>
+    `
+  );
+}
+
+async function addEmployee(e){
+
+  e.preventDefault();
+
+  try{
+
+    const row=await sb(
+      db()
+      .from('employees')
+      .insert({
+        name:$('employeeName').value.trim(),
+        job_title:$('employeeJob').value.trim(),
+        phone:$('employeePhone').value.trim(),
+        login_code:genTeacherCode()
+      })
+      .select()
+      .single()
+    );
+
+    DATA.employees.push(mapEmployee(row));
+
+    toast(
+      `تمت إضافة الموظف — كود الدخول: ${row.login_code}`
+    );
+
+    renderAdmin();
+
+  }catch(x){
+
+    toast(friendlyError(x),true);
+  }
+}
+
+async function regenerateEmployeeCode(id){
+
+  if(!confirm(
+    'توليد كود دخول جديد لهذا الموظف؟ سيتوقف الكود القديم عن العمل فورًا.'
+  )){
+    return;
+  }
+
+  try{
+
+    const row=await sb(
+      db()
+      .from('employees')
+      .update({login_code:genTeacherCode()})
+      .eq('id',id)
+      .select()
+      .single()
+    );
+
+    const emp=getEmployee(id);
+
+    if(emp){
+      emp.loginCode=row.login_code;
+    }
+
+    toast(`الكود الجديد: ${row.login_code}`);
+
+    renderAdmin();
+
+  }catch(x){
+
+    toast(friendlyError(x),true);
+  }
+}
+
+async function deleteEmployee(id){
+
+  if(!confirm(
+    'حذف هذا الموظف وكل مهامه؟'
+  )){
+    return;
+  }
+
+  try{
+
+    await sb(
+      db()
+      .from('tasks')
+      .delete()
+      .eq('employee_id',id)
+    );
+
+    await sb(
+      db()
+      .from('employees')
+      .delete()
+      .eq('id',id)
+    );
+
+    DATA.tasks=
+      DATA.tasks.filter(t=>t.employeeId!==id);
+
+    DATA.employees=
+      DATA.employees.filter(x=>x.id!==id);
+
+    if(adminStaffEmployee===id){
+      adminStaffEmployee='all';
+    }
+
+    toast('تم حذف الموظف');
+
+    renderAdmin();
+
+  }catch(x){
+
+    toast(friendlyError(x),true);
+  }
+}
+
+async function addTask(e){
+
+  e.preventDefault();
+
+  try{
+
+    const row=await sb(
+      db()
+      .from('tasks')
+      .insert({
+        employee_id:$('taskEmployee').value,
+        title:$('taskTitle').value.trim(),
+        description:$('taskDesc').value.trim(),
+        due_date:$('taskDue').value||null,
+        status:'todo'
+      })
+      .select()
+      .single()
+    );
+
+    DATA.tasks.unshift(mapTask(row));
+
+    toast('تمت إضافة المهمة');
+
+    renderAdmin();
+
+  }catch(x){
+
+    toast(friendlyError(x),true);
+  }
+}
+
+async function deleteTask(id){
+
+  if(!confirm('حذف هذه المهمة؟')) return;
+
+  try{
+
+    await sb(
+      db()
+      .from('tasks')
+      .delete()
+      .eq('id',id)
+    );
+
+    DATA.tasks=
+      DATA.tasks.filter(t=>t.id!==id);
+
+    toast('تم حذف المهمة');
+
+    renderAdmin();
+
+  }catch(x){
+
+    toast(friendlyError(x),true);
+  }
+}
+
+async function setTaskStatus(id,status){
+
+  try{
+
+    const row=await sb(
+      db()
+      .from('tasks')
+      .update({
+        status,
+        updated_at:new Date().toISOString()
+      })
+      .eq('id',id)
+      .select()
+      .single()
+    );
+
+    const mapped=mapTask(row);
+
+    DATA.tasks=
+      DATA.tasks.map(t=>t.id===id?mapped:t);
+
+    toast(`الحالة: ${taskStatusLabel(status)}`);
+
+    rerenderStaffViews();
+
+  }catch(x){
+
+    toast(friendlyError(x),true);
+
+    rerenderStaffViews();
+  }
+}
+
+async function saveTaskNote(id,note){
+
+  try{
+
+    const row=await sb(
+      db()
+      .from('tasks')
+      .update({
+        employee_note:note.trim(),
+        updated_at:new Date().toISOString()
+      })
+      .eq('id',id)
+      .select()
+      .single()
+    );
+
+    const mapped=mapTask(row);
+
+    DATA.tasks=
+      DATA.tasks.map(t=>t.id===id?mapped:t);
+
+    toast('تم حفظ الملاحظة');
+
+  }catch(x){
+
+    toast(friendlyError(x),true);
+  }
+}
+
+/* ---------- لوحة الموظف ---------- */
+
+function renderEmployeeNav(){
+
+  const n=$('employeeNav');
+
+  if(!n) return;
+
+  n.innerHTML=navButton(
+    'tasks',
+    'مهامي',
+    employeeTab==='tasks',
+    "employeeTab='tasks';renderEmployee()"
+  );
+}
+
+function renderEmployee(){
+
+  renderHeaderActions();
+  renderEmployeeNav();
+
+  const m=$('employeeMain');
+
+  if(!m) return;
+
+  const emp=getEmployee(currentEmployeeId);
+
+  const mine=
+    DATA.tasks
+      .filter(t=>t.employeeId===currentEmployeeId)
+      .sort((a,b)=>{
+        const order={todo:0,doing:1,done:2};
+        return (order[a.status]-order[b.status]) ||
+          String(a.dueDate||'9999').localeCompare(String(b.dueDate||'9999'));
+      });
+
+  const c=taskCounts(mine);
+
+  m.innerHTML=panel(
+    `مهامي${emp?.jobTitle?` — ${esc(emp.jobTitle)}`:''}`,
+
+    `
+    <div class="stats-grid">
+
+      <div class="stat-card">
+        <strong>${c.total}</strong>
+        <span>إجمالي المهام</span>
+      </div>
+
+      <div class="stat-card">
+        <strong>${c.todo}</strong>
+        <span>لم تتم</span>
+      </div>
+
+      <div class="stat-card">
+        <strong>${c.doing}</strong>
+        <span>قيد العمل</span>
+      </div>
+
+      <div class="stat-card">
+        <strong>${c.done}</strong>
+        <span>تمت</span>
+      </div>
+
+    </div>
+
+    ${
+      c.total
+      ? `
+        <div class="dashboard-highlight">
+          <div class="progress-row">
+            <span class="progress-label">نسبة الإنجاز</span>
+            ${progressBarHtml(donePercent(mine))}
+            <span class="progress-pct">${donePercent(mine)}%</span>
+          </div>
+        </div>
+      `
+      : ''
+    }
+
+    ${
+      mine.length
+      ? `
+        <div class="student-evaluation-list">
+
+          ${mine.map(t=>`
+
+            <div class="evaluation-card">
+
+              <div class="evaluation-header">
+
+                <div>
+                  <h3>${esc(t.title)}</h3>
+                  ${
+                    t.dueDate
+                    ? `<small>الاستحقاق: ${fmtDate(t.dueDate)}</small>`
+                    : ''
+                  }
+                </div>
+
+                <div>
+                  ${statusBadge(t)}
+                </div>
+
+              </div>
+
+              ${
+                t.description
+                ? `<p style="font-size:13.5px;line-height:1.8;margin-bottom:12px;white-space:pre-wrap;">${esc(t.description)}</p>`
+                : ''
+              }
+
+              <div class="status-btns">
+
+                ${TASK_STATUSES.map(s=>`
+
+                  <button
+                    class="status-btn ${s.key} ${t.status===s.key?'active':''}"
+                    onclick="setTaskStatus('${t.id}','${s.key}')">
+
+                    ${s.label}
+
+                  </button>
+
+                `).join('')}
+
+              </div>
+
+              <input
+                class="input"
+                style="margin-top:12px;"
+                placeholder="ملاحظة للمدير (اختياري) — تُحفظ عند الخروج من الخانة"
+                value="${esc(t.employeeNote)}"
+                onchange="saveTaskNote('${t.id}',this.value)">
+
+            </div>
+
+          `).join('')}
+
+        </div>
+      `
+      : `
+        <div class="empty">
+          لا توجد مهام مسندة إليك حاليًا.
+        </div>
+      `
+    }
+    `
+  );
+}
+
 function saveData(){
 
   /*
@@ -5271,6 +6358,8 @@ document.addEventListener(
           renderAdmin();
         }else if(currentTeacherId){
           renderTeacher();
+        }else if(currentEmployeeId){
+          renderEmployee();
         }
 
       }catch(e){
