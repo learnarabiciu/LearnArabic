@@ -257,3 +257,16 @@ tr:last-child td{border-bottom:none;}
   padding:8px 0;border-bottom:1px dashed var(--line);font-size:13.5px;
 }
 .deduction-row:last-child{border-bottom:none;}
+
+/* ---------- Staff tasks ---------- */
+.status-badge{display:inline-block;padding:4px 12px;border-radius:999px;font-size:12.5px;font-weight:800;margin-inline-start:4px;}
+.status-badge.todo{background:#fdeeee;color:var(--red);}
+.status-badge.doing{background:#fef2dd;color:var(--orange-dark);}
+.status-badge.done{background:#e3f5ea;color:var(--green);}
+.status-badge.overdue{background:var(--red);color:var(--white);}
+.status-btns{display:flex;gap:8px;flex-wrap:wrap;}
+.status-btn{padding:9px 18px;border-radius:10px;font-size:13.5px;font-weight:700;background:#f4eef7;color:var(--muted);transition:.2s;}
+.status-btn:hover{filter:brightness(.96);}
+.status-btn.todo.active{background:var(--red);color:var(--white);}
+.status-btn.doing.active{background:var(--orange-dark);color:var(--white);}
+.status-btn.done.active{background:var(--green);color:var(--white);}
