@@ -54,6 +54,8 @@ let adminStaffEmployee = 'all';
 let employeeFilter = 'all';
 let employeeStatusFilter = 'all';
 let staffDraft = [];
+let editingTaskId = null;
+let showNewTask = false;
 let staffDraftDue = '';
 const NIL_UUID = '00000000-0000-0000-0000-000000000000';
 let selectedTeacherRoomId = null;
@@ -75,7 +77,8 @@ function emptyData(){
     teacherEvaluations:[],
     teacherDeductions:[],
     employees:[],
-    tasks:[]
+    tasks:[],
+    groups:[]
   };
 }
 
@@ -166,15 +169,28 @@ function mapEmployee(r){
   };
 }
 
+function mapGroup(r){
+  return {
+    id:r.id,
+    name:r.name,
+    description:r.description||'',
+    createdAt:r.created_at||''
+  };
+}
+
 function mapTask(r){
   return {
     id:r.id,
-    employeeId:r.employee_id,
+    groupId:r.group_id||null,
+    employeeIds:Array.isArray(r.employee_ids)
+      ? r.employee_ids
+      : (r.employee_id?[r.employee_id]:[]),
     title:r.title||'',
     description:r.description||'',
     status:r.status||'todo',
     dueDate:r.due_date||'',
     employeeNote:r.employee_note||'',
+    updatedBy:r.updated_by||'',
     createdAt:r.created_at||'',
     updatedAt:r.updated_at||''
   };
@@ -499,6 +515,7 @@ async function loadStaffData(){
 
   DATA.employees=[];
   DATA.tasks=[];
+  DATA.groups=[];
 
   const isAdmin=
     currentAdmin || currentProfile?.role==='admin';
@@ -514,13 +531,18 @@ async function loadStaffData(){
     const taskQ=db().from('tasks').select('*')
       .order('created_at',{ascending:false});
 
-    const [emps,tasks]=await Promise.all([
+    const groupQ=db().from('task_groups').select('*')
+      .order('created_at',{ascending:true});
+
+    const [emps,tasks,groups]=await Promise.all([
       sb(empQ),
-      sb(taskQ)
+      sb(taskQ),
+      sb(groupQ).catch(()=>[])
     ]);
 
     DATA.employees=(emps||[]).map(mapEmployee);
     DATA.tasks=(tasks||[]).map(mapTask);
+    DATA.groups=(groups||[]).map(mapGroup);
 
   }catch(e){
 
@@ -978,7 +1000,7 @@ function renderAdminNav(){
       'staff',
       'الموظفون والمهام',
       adminTab==='staff',
-      "adminTab='staff';renderAdmin()"
+      "adminTab='staff';staffNav.admin.view='home';renderAdmin()"
     ),
 
     navButton(
@@ -1210,7 +1232,8 @@ function renderAdminRooms(){
 
               <td>
 
-                <button
+                <button class="btn ghost small" onclick="editRoom('${r.id}')">تعديل</button>
+<button
                   class="btn danger small"
                   onclick="deleteRoom('${r.id}')">
 
@@ -1469,7 +1492,8 @@ function renderAdminTeachers(){
 
                 </button>
 
-                <button
+                <button class="btn ghost small" onclick="editTeacher('${t.id}')">تعديل</button>
+<button
                   class="btn danger small"
                   onclick="deleteTeacher('${t.id}')">
 
@@ -2287,7 +2311,8 @@ function renderAdminStudents(){
 
                 <td>
 
-                  <button
+                  <button class="btn ghost small" onclick="editStudent('${s.id}')">تعديل</button>
+<button
                     class="btn danger small"
                     onclick="deleteStudent('${s.id}')">
 
@@ -2739,7 +2764,8 @@ function renderAdminReports(){
 
                 <td>
 
-                  <button
+                  <button class="btn ghost small" onclick="editReport('${r.id}')">تعديل</button>
+<button
                     class="btn danger small"
                     onclick="deleteReport('${r.id}')">
                     حذف
@@ -2845,7 +2871,8 @@ function renderAdminAnnouncements(){
               ${esc(a.text)}
             </div>
 
-            <button
+            <button class="btn ghost small" onclick="editAnnouncement('${a.id}')">تعديل</button>
+<button
               class="btn danger small"
               onclick="deleteAnnouncement('${a.id}')">
               حذف
@@ -4826,7 +4853,8 @@ function renderTeacherDeductions(teacherId){
               -${d.points}
             </strong>
 
-            <button
+            <button class="btn ghost small" onclick="editDeduction('${d.id}')">تعديل</button>
+<button
               class="btn danger small"
               onclick="deleteTeacherDeduction('${d.id}')">
 
@@ -5491,8 +5519,33 @@ async function boot(){
 }
 
 /* =========================================================
-   الموظفون والمهام
+   الموظفون والمهام (مجموعات + مهام عامة)
    ========================================================= */
+
+const staffNav = {
+  admin:{view:'home',group:null},
+  employee:{view:'home',group:null}
+};
+
+let staffFilterStatus = 'all';
+let staffFilterEmp = 'all';
+
+function nav(){
+  return currentAdmin?staffNav.admin:staffNav.employee;
+}
+
+function getGroup(id){
+  return DATA.groups.find(g=>g.id===id);
+}
+
+function groupTasks(groupId){
+  return DATA.tasks.filter(t=>(t.groupId||null)===(groupId||null));
+}
+
+function currentGroupId(){
+  const n=nav();
+  return n.view==='general'?null:n.group;
+}
 
 function taskCounts(list){
 
@@ -5553,6 +5606,27 @@ function statusSelect(task){
   `;
 }
 
+function assigneeTags(t){
+
+  if(!t.employeeIds.length){
+    return '<span class="hint">غير مسندة</span>';
+  }
+
+  return t.employeeIds.map(id=>{
+
+    const e=getEmployee(id);
+
+    if(!e) return '';
+
+    return `
+      <span class="assignee-tag ${id===currentEmployeeId?'me':''}">
+        ${esc(e.name)}
+      </span>
+    `;
+
+  }).join('');
+}
+
 function rerenderStaffViews(){
 
   if(currentAdmin){
@@ -5562,34 +5636,100 @@ function rerenderStaffViews(){
   }
 }
 
-/* ---------- لوحة الإدارة ---------- */
+function openStaffView(view,group=null){
 
-function renderAdminStaff(){
+  const n=nav();
 
-  const all=DATA.tasks;
-  const c=taskCounts(all);
+  n.view=view;
+  n.group=group;
 
-  let tasks=all.slice();
+  staffFilterStatus='all';
+  staffFilterEmp='all';
+  staffDraft=[];
+  staffDraftDue='';
 
-  if(adminStaffStatus!=='all'){
-    tasks=tasks.filter(t=>t.status===adminStaffStatus);
+  rerenderStaffViews();
+
+  window.scrollTo?.(0,0);
+}
+
+/* ---------- نقطة الدخول المشتركة ---------- */
+
+function renderStaffRoute(isAdmin){
+
+  const n=nav();
+
+  if(n.view==='employees' && isAdmin){
+    return renderStaffEmployeesAdmin();
   }
 
-  if(adminStaffEmployee!=='all'){
-    tasks=tasks.filter(t=>t.employeeId===adminStaffEmployee);
+  if(n.view==='general'){
+    return renderStaffBoard(isAdmin);
   }
 
-  const order={todo:0,doing:1,done:2};
+  if(n.view==='group'){
 
-  tasks.sort((a,b)=>
-    (order[a.status]-order[b.status]) ||
-    String(a.dueDate||'9999').localeCompare(String(b.dueDate||'9999'))
-  );
+    if(getGroup(n.group)){
+      return renderStaffBoard(isAdmin);
+    }
+
+    n.view='home';
+  }
 
   return panel(
-    'الموظفون والمهام',
+    isAdmin?'الموظفون والمهام':'لوحة المهام',
+    renderStaffHome(isAdmin)
+  );
+}
 
-    `
+function renderAdminStaff(){
+  return renderStaffRoute(true);
+}
+
+/* ---------- الصفحة الرئيسية: صناديق المجموعات ---------- */
+
+function renderGroupTile(label,desc,tasks,onclick,actions,cls){
+
+  const c=taskCounts(tasks);
+
+  return `
+
+    <div
+      class="group-tile ${cls||''}"
+      onclick="${onclick}">
+
+      <div class="group-name">${esc(label)}</div>
+
+      ${
+        desc
+        ? `<div class="group-desc">${esc(desc)}</div>`
+        : ''
+      }
+
+      <div class="group-meta">
+        ${c.total} مهمة · ${c.done} تمت
+        ${c.doing?` · ${c.doing} قيد العمل`:''}
+      </div>
+
+      ${
+        c.total
+        ? progressBarHtml(donePercent(tasks))
+        : '<div class="progress-track"></div>'
+      }
+
+      ${actions||''}
+
+    </div>
+
+  `;
+}
+
+function renderStaffHome(isAdmin){
+
+  const c=taskCounts(DATA.tasks);
+
+  return `
+
     <div class="stats-grid">
 
       <div class="stat-card">
@@ -5614,6 +5754,80 @@ function renderAdminStaff(){
 
     </div>
 
+    <div class="group-grid">
+
+      ${DATA.groups.map(g=>
+
+        renderGroupTile(
+          g.name,
+          g.description,
+          groupTasks(g.id),
+          `openStaffView('group','${g.id}')`,
+          isAdmin
+            ? `
+              <div
+                class="group-actions"
+                onclick="event.stopPropagation()">
+
+                <button
+                  class="btn ghost small"
+                  onclick="openGroupModal('${g.id}')">
+                  تعديل
+                </button>
+
+                <button
+                  class="btn danger small"
+                  onclick="deleteGroup('${g.id}')">
+                  حذف
+                </button>
+
+              </div>
+            `
+            : '',
+          ''
+        )
+
+      ).join('')}
+
+      ${renderGroupTile(
+        'مهام عامة',
+        'مهام متعلقة بالبرنامج بشكل عام',
+        groupTasks(null),
+        "openStaffView('general')",
+        '',
+        'general'
+      )}
+
+      ${
+        isAdmin
+        ? `
+          <div
+            class="group-tile add"
+            onclick="openGroupModal()">
+            ＋ إضافة مجموعة
+          </div>
+        `
+        : ''
+      }
+
+    </div>
+
+    ${
+      isAdmin
+      ? `
+        <div class="toolbar">
+
+          <button
+            class="btn ghost"
+            onclick="openStaffView('employees')">
+            إدارة الموظفين وأكوادهم
+          </button>
+
+        </div>
+      `
+      : ''
+    }
+
     <div class="dashboard-highlight">
 
       <h3>إنجاز الموظفين</h3>
@@ -5623,7 +5837,9 @@ function renderAdminStaff(){
         ? DATA.employees.map(e=>{
 
             const mine=
-              DATA.tasks.filter(t=>t.employeeId===e.id);
+              DATA.tasks.filter(
+                t=>t.employeeIds.includes(e.id)
+              );
 
             const pct=donePercent(mine);
 
@@ -5631,7 +5847,7 @@ function renderAdminStaff(){
               <div class="progress-row">
 
                 <span class="progress-label">
-                  ${esc(e.name)}
+                  ${esc(e.name)}${e.id===currentEmployeeId?' (أنت)':''}
                 </span>
 
                 ${
@@ -5647,58 +5863,234 @@ function renderAdminStaff(){
               </div>
             `;
           }).join('')
-        : '<div class="empty">أضف موظفين أولاً.</div>'
+        : '<div class="empty">لا يوجد موظفون بعد.</div>'
       }
 
     </div>
 
-    <hr>
+    ${
+      isAdmin
+      ? `
+        <div class="deductions-box">
 
-    ${renderTaskDraftSection()}
+          <h3>حذف المهام</h3>
 
-    <hr>
+          <div class="notice">
+            الحذف نهائي ولا يمكن التراجع عنه. لحذف بيانات المنصة كلها
+            (طلاب، تقييمات، تقارير...) استخدم "الإعدادات ← حذف البيانات القديمة".
+          </div>
 
-    <h3 style="color:var(--purple);margin-bottom:12px;">
-      لوحة المهام
-    </h3>
+          <div class="export-buttons" style="justify-content:flex-start;margin-top:0;">
+
+            <button
+              class="btn ghost"
+              onclick="clearStaffData('done')">
+              حذف المهام المنتهية (تمت) — ${c.done}
+            </button>
+
+            <button
+              class="btn danger"
+              onclick="clearStaffData('all')">
+              حذف جميع المهام — ${c.total}
+            </button>
+
+            <button
+              class="btn danger"
+              onclick="clearStaffData('everything')">
+              حذف كل شيء (المجموعات والموظفين والمهام)
+            </button>
+
+          </div>
+
+        </div>
+      `
+      : ''
+    }
+
+  `;
+}
+
+/* ---------- لوحة مهام مجموعة / مهام عامة ---------- */
+
+function filteredBoardTasks(gid){
+
+  let tasks=groupTasks(gid);
+
+  if(staffFilterStatus!=='all'){
+    tasks=tasks.filter(t=>t.status===staffFilterStatus);
+  }
+
+  if(staffFilterEmp==='mine'){
+
+    tasks=tasks.filter(
+      t=>t.employeeIds.includes(currentEmployeeId)
+    );
+
+  }else if(staffFilterEmp!=='all'){
+
+    tasks=tasks.filter(
+      t=>t.employeeIds.includes(staffFilterEmp)
+    );
+  }
+
+  const order={todo:0,doing:1,done:2};
+
+  tasks.sort((a,b)=>
+    (order[a.status]-order[b.status]) ||
+    String(a.dueDate||'9999').localeCompare(String(b.dueDate||'9999'))
+  );
+
+  return tasks;
+}
+
+function renderStaffBoard(isAdmin){
+
+  const n=nav();
+
+  const isGeneral=n.view==='general';
+
+  const group=isGeneral?null:getGroup(n.group);
+
+  const gid=isGeneral?null:group.id;
+
+  const title=isGeneral?'مهام عامة':group.name;
+
+  const all=groupTasks(gid);
+
+  const c=taskCounts(all);
+
+  const tasks=filteredBoardTasks(gid);
+
+  return panel(
+    title,
+
+    `
+    <div class="toolbar">
+
+      <button
+        class="btn ghost small"
+        onclick="openStaffView('home')">
+        ← رجوع للمجموعات
+      </button>
+
+      ${
+        isAdmin && !isGeneral
+        ? `
+          <button
+            class="btn ghost small"
+            onclick="openGroupModal('${gid}')">
+            تعديل المجموعة
+          </button>
+
+          <button
+            class="btn danger small"
+            onclick="deleteGroup('${gid}')">
+            حذف المجموعة
+          </button>
+        `
+        : ''
+      }
+
+    </div>
+
+    ${
+      !isGeneral && group.description
+      ? `<div class="notice">${esc(group.description)}</div>`
+      : ''
+    }
+
+    <div class="stats-grid">
+
+      <div class="stat-card">
+        <strong>${c.total}</strong>
+        <span>المهام</span>
+      </div>
+
+      <div class="stat-card">
+        <strong>${c.todo}</strong>
+        <span>لم تتم</span>
+      </div>
+
+      <div class="stat-card">
+        <strong>${c.doing}</strong>
+        <span>قيد العمل</span>
+      </div>
+
+      <div class="stat-card">
+        <strong>${c.done}</strong>
+        <span>تمت</span>
+      </div>
+
+    </div>
+
+    ${isAdmin?renderTaskDraftSection():''}
 
     <div class="toolbar">
+
+      ${
+        isAdmin
+        ? `
+          <button
+            type="button"
+            class="btn secondary small"
+            onclick="openTaskModal()">
+            ＋ إضافة مهمة
+          </button>
+        `
+        : ''
+      }
 
       <label>الحالة</label>
 
       <select
         class="input"
         style="width:auto;"
-        onchange="adminStaffStatus=this.value;renderAdmin()">
+        onchange="staffFilterStatus=this.value;rerenderStaffViews()">
 
         <option value="all">الكل</option>
 
         ${TASK_STATUSES.map(s=>`
           <option
             value="${s.key}"
-            ${adminStaffStatus===s.key?'selected':''}>
+            ${staffFilterStatus===s.key?'selected':''}>
             ${s.label}
           </option>
         `).join('')}
 
       </select>
 
-      <label>الموظف</label>
+      <label>${isAdmin?'الموظف':'عرض'}</label>
 
       <select
         class="input"
         style="width:auto;"
-        onchange="adminStaffEmployee=this.value;renderAdmin()">
+        onchange="staffFilterEmp=this.value;rerenderStaffViews()">
 
         <option value="all">الكل</option>
 
-        ${DATA.employees.map(e=>`
-          <option
-            value="${e.id}"
-            ${adminStaffEmployee===e.id?'selected':''}>
-            ${esc(e.name)}
-          </option>
-        `).join('')}
+        ${
+          isAdmin
+          ? ''
+          : `
+            <option
+              value="mine"
+              ${staffFilterEmp==='mine'?'selected':''}>
+              مهامي فقط
+            </option>
+          `
+        }
+
+        ${
+          isAdmin
+          ? DATA.employees.map(e=>`
+              <option
+                value="${e.id}"
+                ${staffFilterEmp===e.id?'selected':''}>
+                ${esc(e.name)}
+              </option>
+            `).join('')
+          : ''
+        }
 
       </select>
 
@@ -5710,13 +6102,13 @@ function renderAdminStaff(){
 
         <thead>
           <tr>
-            <th>الموظف</th>
             <th>المهمة</th>
+            <th>المسند إليهم</th>
             <th>الاستحقاق</th>
             <th>الحالة</th>
-            <th>تغيير الحالة</th>
-            <th>ملاحظة الموظف</th>
-            <th></th>
+            <th>تحديث الحالة</th>
+            <th>ملاحظة</th>
+            ${isAdmin?'<th></th>':''}
           </tr>
         </thead>
 
@@ -5724,53 +6116,89 @@ function renderAdminStaff(){
 
           ${
             tasks.length
-            ? tasks.map(t=>`
+            ? tasks.map(t=>{
 
-              <tr>
+                const mine=
+                  !isAdmin &&
+                  t.employeeIds.includes(currentEmployeeId);
 
-                <td>
-                  ${esc(getEmployee(t.employeeId)?.name||'-')}
-                </td>
+                return `
 
-                <td>
-                  <b>${esc(t.title)}</b>
-                  ${
-                    t.description
-                    ? `<div class="hint" style="text-align:right;margin-top:4px;white-space:pre-wrap;">${esc(t.description)}</div>`
-                    : ''
-                  }
-                </td>
+                  <tr class="${mine?'mine-row':''}">
 
-                <td>
-                  ${t.dueDate?fmtDate(t.dueDate):'-'}
-                </td>
+                    <td>
+                      <b>${esc(t.title)}</b>
+                      ${
+                        t.description
+                        ? `<div class="hint" style="text-align:right;margin-top:4px;white-space:pre-wrap;">${esc(t.description)}</div>`
+                        : ''
+                      }
+                    </td>
 
-                <td>
-                  ${statusBadge(t)}
-                </td>
+                    <td>
+                      ${assigneeTags(t)}
+                    </td>
 
-                <td>
-                  ${statusSelect(t)}
-                </td>
+                    <td>
+                      ${t.dueDate?fmtDate(t.dueDate):'-'}
+                    </td>
 
-                <td>
-                  ${esc(t.employeeNote||'-')}
-                </td>
+                    <td>
+                      ${statusBadge(t)}
+                      ${
+                        t.updatedBy
+                        ? `<div class="hint" style="text-align:right;margin-top:4px;">آخر تحديث: ${esc(t.updatedBy)}</div>`
+                        : ''
+                      }
+                    </td>
 
-                <td>
-                  <button
-                    class="btn danger small"
-                    onclick="deleteTask('${t.id}')">
-                    حذف
-                  </button>
-                </td>
+                    <td>
+                      ${statusSelect(t)}
+                    </td>
 
-              </tr>
+                    <td>
+                      ${
+                        mine
+                        ? `
+                          <input
+                            class="input"
+                            placeholder="ملاحظة (اختياري)"
+                            value="${esc(t.employeeNote)}"
+                            onchange="saveTaskNote('${t.id}',this.value)">
+                        `
+                        : esc(t.employeeNote||'-')
+                      }
+                    </td>
 
-            `).join('')
+                    ${
+                      isAdmin
+                      ? `
+                        <td style="display:flex;gap:6px;flex-wrap:wrap;">
+
+                          <button
+                            class="btn ghost small"
+                            onclick="openTaskModal('${t.id}')">
+                            تعديل
+                          </button>
+
+                          <button
+                            class="btn danger small"
+                            onclick="deleteTask('${t.id}')">
+                            حذف
+                          </button>
+
+                        </td>
+                      `
+                      : ''
+                    }
+
+                  </tr>
+
+                `;
+              }).join('')
             : `
               <tr>
-                <td colspan="7">
+                <td colspan="${isAdmin?7:6}">
                   لا توجد مهام مطابقة.
                 </td>
               </tr>
@@ -5782,323 +6210,55 @@ function renderAdminStaff(){
       </table>
 
     </div>
-
-    <hr>
-
-    <h3 style="color:var(--purple);margin-bottom:12px;">
-      الموظفون
-    </h3>
-
-    <div class="notice">
-
-      عند إضافة موظف يتم توليد كود دخول خاص به
-      تلقائيًا. أعطه اسمه والكود ليدخل من
-      الصفحة الرئيسية (خانة "الموظف/ـة") ويرى
-      مهامه ويحدّث حالتها.
-
-    </div>
-
-    <form
-      onsubmit="addEmployee(event)"
-      class="form-grid">
-
-      <input
-        id="employeeName"
-        class="input"
-        placeholder="اسم الموظف/ـة"
-        required>
-
-      <input
-        id="employeeJob"
-        class="input"
-        placeholder="المسمى الوظيفي (اختياري)">
-
-      <input
-        id="employeePhone"
-        class="input"
-        placeholder="رقم الجوال (اختياري)">
-
-      <button class="btn primary">
-        إضافة موظف
-      </button>
-
-    </form>
-
-    <div class="table-wrap">
-
-      <table>
-
-        <thead>
-          <tr>
-            <th>الاسم</th>
-            <th>المسمى</th>
-            <th>الجوال</th>
-            <th>كود الدخول</th>
-            <th>المهام</th>
-            <th></th>
-          </tr>
-        </thead>
-
-        <tbody>
-
-          ${
-            DATA.employees.length
-            ? DATA.employees.map(e=>{
-
-                const mine=
-                  taskCounts(
-                    DATA.tasks.filter(t=>t.employeeId===e.id)
-                  );
-
-                return `
-                  <tr>
-
-                    <td>${esc(e.name)}</td>
-
-                    <td>${esc(e.jobTitle||'-')}</td>
-
-                    <td>${esc(e.phone||'-')}</td>
-
-                    <td class="ltr">
-                      <strong>${esc(e.loginCode||'-')}</strong>
-                    </td>
-
-                    <td>
-                      ${mine.done}/${mine.total} تمت
-                    </td>
-
-                    <td style="display:flex;gap:6px;flex-wrap:wrap;">
-
-                      <button
-                        class="btn ghost small"
-                        onclick="regenerateEmployeeCode('${e.id}')">
-                        كود جديد
-                      </button>
-
-                      <button
-                        class="btn danger small"
-                        onclick="deleteEmployee('${e.id}')">
-                        حذف
-                      </button>
-
-                    </td>
-
-                  </tr>
-                `;
-              }).join('')
-            : `
-              <tr>
-                <td colspan="6">
-                  لا يوجد موظفون حتى الآن.
-                </td>
-              </tr>
-            `
-          }
-
-        </tbody>
-
-      </table>
-
-    </div>
-
-    <div class="deductions-box">
-
-      <h3>حذف بيانات الموظفين والمهام</h3>
-
-      <div class="notice">
-        الحذف نهائي ولا يمكن التراجع عنه. لحذف بيانات المنصة كلها
-        (طلاب، تقييمات، تقارير...) استخدم "الإعدادات ← حذف البيانات القديمة".
-      </div>
-
-      <div class="export-buttons" style="justify-content:flex-start;margin-top:0;">
-
-        <button
-          class="btn ghost"
-          onclick="clearStaffData('done')">
-          حذف المهام المنتهية (تمت) — ${c.done}
-        </button>
-
-        <button
-          class="btn danger"
-          onclick="clearStaffData('all')">
-          حذف جميع المهام — ${c.total}
-        </button>
-
-        <button
-          class="btn danger"
-          onclick="clearStaffData('everything')">
-          حذف كل شيء (الموظفين والمهام)
-        </button>
-
-      </div>
-
-    </div>
     `
   );
 }
 
-async function addEmployee(e){
-
-  e.preventDefault();
-
-  try{
-
-    const row=await sb(
-      db()
-      .from('employees')
-      .insert({
-        name:$('employeeName').value.trim(),
-        job_title:$('employeeJob').value.trim(),
-        phone:$('employeePhone').value.trim(),
-        login_code:genTeacherCode()
-      })
-      .select()
-      .single()
-    );
-
-    DATA.employees.push(mapEmployee(row));
-
-    toast(
-      `تمت إضافة الموظف — كود الدخول: ${row.login_code}`
-    );
-
-    renderAdmin();
-
-  }catch(x){
-
-    toast(friendlyError(x),true);
-  }
-}
-
-async function regenerateEmployeeCode(id){
-
-  if(!confirm(
-    'توليد كود دخول جديد لهذا الموظف؟ سيتوقف الكود القديم عن العمل فورًا.'
-  )){
-    return;
-  }
-
-  try{
-
-    const row=await sb(
-      db()
-      .from('employees')
-      .update({login_code:genTeacherCode()})
-      .eq('id',id)
-      .select()
-      .single()
-    );
-
-    const emp=getEmployee(id);
-
-    if(emp){
-      emp.loginCode=row.login_code;
-    }
-
-    toast(`الكود الجديد: ${row.login_code}`);
-
-    renderAdmin();
-
-  }catch(x){
-
-    toast(friendlyError(x),true);
-  }
-}
-
-async function deleteEmployee(id){
-
-  if(!confirm(
-    'حذف هذا الموظف وكل مهامه؟'
-  )){
-    return;
-  }
-
-  try{
-
-    await sb(
-      db()
-      .from('tasks')
-      .delete()
-      .eq('employee_id',id)
-    );
-
-    await sb(
-      db()
-      .from('employees')
-      .delete()
-      .eq('id',id)
-    );
-
-    DATA.tasks=
-      DATA.tasks.filter(t=>t.employeeId!==id);
-
-    DATA.employees=
-      DATA.employees.filter(x=>x.id!==id);
-
-    if(adminStaffEmployee===id){
-      adminStaffEmployee='all';
-    }
-
-    toast('تم حذف الموظف');
-
-    renderAdmin();
-
-  }catch(x){
-
-    toast(friendlyError(x),true);
-  }
-}
+/* ---------- إدخال مهام كثيرة دفعة واحدة ---------- */
 
 function renderTaskDraftSection(){
 
-  if(!DATA.employees.length){
-
-    return `
-      <div class="notice">
-        أضف موظفين أولاً (من قسم "الموظفون" أسفل الصفحة) ثم أسند المهام.
-      </div>
-    `;
-  }
-
   return `
 
-    <h3 style="color:var(--purple);margin-bottom:12px;">
-      إضافة مهام وإسنادها
-    </h3>
+    <div class="card-inner">
 
-    <div class="notice">
+      <h3>إضافة عدة مهام دفعة واحدة</h3>
 
-      اكتب المهام كلها هنا، كل مهمة في سطر مستقل،
-      ثم اضغط "تجهيز المهام" لتحديد الموظف أو
-      الموظفين المسند إليهم كل مهمة.
+      <div class="notice">
+
+        اكتب المهام كلها هنا، كل مهمة في سطر مستقل، ثم اضغط
+        "تجهيز المهام" لتحديد الموظف أو الموظفين المشتركين في
+        كل مهمة (المهمة الواحدة يشترك فيها كل من تحدده).
+
+      </div>
+
+      <div class="form-grid">
+
+        <textarea
+          id="bulkTasksText"
+          class="input"
+          rows="5"
+          placeholder="المهمة الأولى&#10;المهمة الثانية&#10;المهمة الثالثة"></textarea>
+
+        <input
+          id="bulkTasksDue"
+          type="date"
+          class="input"
+          value="${esc(staffDraftDue)}"
+          title="تاريخ الاستحقاق لكل المهام (اختياري)">
+
+        <button
+          type="button"
+          class="btn secondary"
+          onclick="prepareTaskDraft()">
+          تجهيز المهام
+        </button>
+
+      </div>
+
+      ${renderTaskDraftList()}
 
     </div>
-
-    <div class="form-grid">
-
-      <textarea
-        id="bulkTasksText"
-        class="input"
-        rows="6"
-        placeholder="المهمة الأولى&#10;المهمة الثانية&#10;المهمة الثالثة"></textarea>
-
-      <input
-        id="bulkTasksDue"
-        type="date"
-        class="input"
-        value="${esc(staffDraftDue)}"
-        title="تاريخ الاستحقاق لكل المهام (اختياري)">
-
-      <button
-        type="button"
-        class="btn secondary"
-        onclick="prepareTaskDraft()">
-        تجهيز المهام
-      </button>
-
-    </div>
-
-    ${renderTaskDraftList()}
 
   `;
 }
@@ -6178,7 +6338,7 @@ function renderTaskDraftList(){
           type="button"
           class="btn primary"
           onclick="saveTaskDraft()">
-          حفظ وإسناد المهام
+          حفظ المهام
         </button>
 
         <button
@@ -6266,33 +6426,14 @@ async function saveTaskDraft(){
 
   if(!staffDraft.length) return;
 
-  const missing=
-    staffDraft.findIndex(d=>!d.employeeIds.length);
-
-  if(missing!==-1){
-
-    toast(
-      `حدد موظفًا واحدًا على الأقل للمهمة رقم ${missing+1}.`,
-      true
-    );
-
-    return;
-  }
-
-  const rows=[];
-
-  staffDraft.forEach(d=>{
-
-    d.employeeIds.forEach(eid=>{
-
-      rows.push({
-        employee_id:eid,
-        title:d.title,
-        due_date:staffDraftDue||null,
-        status:'todo'
-      });
-    });
-  });
+  const rows=
+    staffDraft.map(d=>({
+      group_id:currentGroupId(),
+      title:d.title,
+      due_date:staffDraftDue||null,
+      status:'todo',
+      employee_ids:d.employeeIds
+    }));
 
   try{
 
@@ -6308,9 +6449,7 @@ async function saveTaskDraft(){
       .reverse()
       .forEach(t=>DATA.tasks.unshift(t));
 
-    toast(
-      `تم إسناد ${staffDraft.length} مهمة (${rows.length} تكليف)`
-    );
+    toast(`تمت إضافة ${rows.length} مهمة`);
 
     staffDraft=[];
     staffDraftDue='';
@@ -6322,6 +6461,517 @@ async function saveTaskDraft(){
     toast(friendlyError(x),true);
   }
 }
+
+/* ---------- إضافة / تعديل مهمة (نافذة) ---------- */
+
+function openTaskModal(id){
+
+  const t=id?DATA.tasks.find(x=>x.id===id):null;
+
+  const gid=t?t.groupId:currentGroupId();
+
+  openEditModal({
+
+    title:t?'تعديل المهمة':'إضافة مهمة جديدة',
+
+    fields:[
+      {key:'title',label:'المهمة',value:t?.title||'',required:true},
+      {key:'description',label:'التفاصيل (اختياري)',type:'textarea',value:t?.description||''},
+      {key:'dueDate',label:'تاريخ الاستحقاق',type:'date',value:t?.dueDate||''},
+      {key:'status',label:'الحالة',type:'select',value:t?.status||'todo',
+        options:TASK_STATUSES.map(s=>({value:s.key,label:s.label}))},
+      {key:'groupId',label:'المجموعة',type:'select',value:gid||'',
+        options:[
+          {value:'',label:'مهام عامة'},
+          ...DATA.groups.map(g=>({value:g.id,label:g.name}))
+        ]},
+      {key:'employeeIds',label:'المشتركون في المهمة',type:'checkboxes',
+        value:t?.employeeIds||[],
+        options:DATA.employees.map(e=>({value:e.id,label:e.name}))}
+    ],
+
+    onSave:async v=>{
+
+      const payload={
+        title:v.title,
+        description:v.description,
+        due_date:v.dueDate||null,
+        status:v.status,
+        group_id:v.groupId||null,
+        employee_ids:v.employeeIds,
+        updated_at:new Date().toISOString(),
+        updated_by:'الإدارة'
+      };
+
+      if(t){
+
+        const row=await updateRow('tasks',t.id,payload);
+
+        DATA.tasks=
+          DATA.tasks.map(x=>x.id===t.id?mapTask(row):x);
+
+        toast('تم حفظ التعديل');
+
+      }else{
+
+        const row=await sb(
+          db().from('tasks').insert(payload).select().single()
+        );
+
+        DATA.tasks.unshift(mapTask(row));
+
+        toast('تمت إضافة المهمة');
+      }
+
+      renderAdmin();
+    }
+  });
+}
+
+async function deleteTask(id){
+
+  if(!confirm('حذف هذه المهمة؟')) return;
+
+  try{
+
+    await sb(
+      db()
+      .from('tasks')
+      .delete()
+      .eq('id',id)
+    );
+
+    DATA.tasks=
+      DATA.tasks.filter(t=>t.id!==id);
+
+    toast('تم حذف المهمة');
+
+    renderAdmin();
+
+  }catch(x){
+
+    toast(friendlyError(x),true);
+  }
+}
+
+async function setTaskStatus(id,status){
+
+  try{
+
+    const row=await updateRow('tasks',id,{
+      status,
+      updated_at:new Date().toISOString(),
+      updated_by:currentAdmin
+        ? 'الإدارة'
+        : (getEmployee(currentEmployeeId)?.name||'')
+    });
+
+    DATA.tasks=
+      DATA.tasks.map(t=>t.id===id?mapTask(row):t);
+
+    toast(`الحالة: ${taskStatusLabel(status)}`);
+
+    rerenderStaffViews();
+
+  }catch(x){
+
+    toast(friendlyError(x),true);
+
+    rerenderStaffViews();
+  }
+}
+
+async function saveTaskNote(id,note){
+
+  try{
+
+    const row=await updateRow('tasks',id,{
+      employee_note:note.trim(),
+      updated_at:new Date().toISOString()
+    });
+
+    DATA.tasks=
+      DATA.tasks.map(t=>t.id===id?mapTask(row):t);
+
+    toast('تم حفظ الملاحظة');
+
+  }catch(x){
+
+    toast(friendlyError(x),true);
+  }
+}
+
+/* ---------- المجموعات ---------- */
+
+function openGroupModal(id){
+
+  const g=id?getGroup(id):null;
+
+  openEditModal({
+
+    title:g?'تعديل المجموعة':'إضافة مجموعة جديدة',
+
+    fields:[
+      {key:'name',label:'اسم المجموعة',value:g?.name||'',required:true},
+      {key:'description',label:'وصف (اختياري)',type:'textarea',value:g?.description||''}
+    ],
+
+    onSave:async v=>{
+
+      if(g){
+
+        const row=await updateRow('task_groups',g.id,{
+          name:v.name,
+          description:v.description
+        });
+
+        Object.assign(g,mapGroup(row));
+
+        toast('تم حفظ التعديل');
+
+      }else{
+
+        const row=await sb(
+          db()
+          .from('task_groups')
+          .insert({name:v.name,description:v.description})
+          .select()
+          .single()
+        );
+
+        DATA.groups.push(mapGroup(row));
+
+        toast('تمت إضافة المجموعة');
+      }
+
+      renderAdmin();
+    }
+  });
+}
+
+async function deleteGroup(id){
+
+  const g=getGroup(id);
+
+  if(!g) return;
+
+  const n=groupTasks(id).length;
+
+  if(!confirm(
+    `حذف مجموعة "${g.name}"${n?` وكل مهامها (${n})`:''}؟`
+  )){
+    return;
+  }
+
+  try{
+
+    await sb(
+      db().from('tasks').delete().eq('group_id',id)
+    );
+
+    await sb(
+      db().from('task_groups').delete().eq('id',id)
+    );
+
+    DATA.tasks=
+      DATA.tasks.filter(t=>t.groupId!==id);
+
+    DATA.groups=
+      DATA.groups.filter(x=>x.id!==id);
+
+    toast('تم حذف المجموعة');
+
+    staffNav.admin.view='home';
+    staffNav.admin.group=null;
+
+    renderAdmin();
+
+  }catch(x){
+
+    toast(friendlyError(x),true);
+  }
+}
+
+/* ---------- إدارة الموظفين ---------- */
+
+function renderStaffEmployeesAdmin(){
+
+  return panel(
+    'إدارة الموظفين',
+
+    `
+    <div class="toolbar">
+
+      <button
+        class="btn ghost small"
+        onclick="openStaffView('home')">
+        ← رجوع للمجموعات
+      </button>
+
+    </div>
+
+    <div class="notice">
+
+      عند إضافة موظف يتم توليد كود دخول خاص به تلقائيًا.
+      أعطه اسمه والكود ليدخل من الصفحة الرئيسية (خانة
+      "الموظف/ـة") ويرى لوحة المهام ويحدّث حالتها.
+
+    </div>
+
+    <form
+      onsubmit="addEmployee(event)"
+      class="form-grid">
+
+      <input
+        id="employeeName"
+        class="input"
+        placeholder="اسم الموظف/ـة"
+        required>
+
+      <input
+        id="employeeJob"
+        class="input"
+        placeholder="المسمى الوظيفي (اختياري)">
+
+      <input
+        id="employeePhone"
+        class="input"
+        placeholder="رقم الجوال (اختياري)">
+
+      <button class="btn primary">
+        إضافة موظف
+      </button>
+
+    </form>
+
+    <div class="table-wrap">
+
+      <table>
+
+        <thead>
+          <tr>
+            <th>الاسم</th>
+            <th>المسمى</th>
+            <th>الجوال</th>
+            <th>كود الدخول</th>
+            <th>المهام</th>
+            <th></th>
+          </tr>
+        </thead>
+
+        <tbody>
+
+          ${
+            DATA.employees.length
+            ? DATA.employees.map(e=>{
+
+                const mine=
+                  taskCounts(
+                    DATA.tasks.filter(
+                      t=>t.employeeIds.includes(e.id)
+                    )
+                  );
+
+                return `
+                  <tr>
+
+                    <td>${esc(e.name)}</td>
+
+                    <td>${esc(e.jobTitle||'-')}</td>
+
+                    <td>${esc(e.phone||'-')}</td>
+
+                    <td class="ltr">
+                      <strong>${esc(e.loginCode||'-')}</strong>
+                    </td>
+
+                    <td>
+                      ${mine.done}/${mine.total} تمت
+                    </td>
+
+                    <td style="display:flex;gap:6px;flex-wrap:wrap;">
+
+                      <button
+                        class="btn ghost small"
+                        onclick="editEmployee('${e.id}')">
+                        تعديل
+                      </button>
+
+                      <button
+                        class="btn ghost small"
+                        onclick="regenerateEmployeeCode('${e.id}')">
+                        كود جديد
+                      </button>
+
+                      <button
+                        class="btn danger small"
+                        onclick="deleteEmployee('${e.id}')">
+                        حذف
+                      </button>
+
+                    </td>
+
+                  </tr>
+                `;
+              }).join('')
+            : `
+              <tr>
+                <td colspan="6">
+                  لا يوجد موظفون حتى الآن.
+                </td>
+              </tr>
+            `
+          }
+
+        </tbody>
+
+      </table>
+
+    </div>
+    `
+  );
+}
+
+function editEmployee(id){
+
+  const e=getEmployee(id);
+
+  if(!e) return;
+
+  openEditModal({
+
+    title:'تعديل الموظف',
+
+    fields:[
+      {key:'name',label:'الاسم',value:e.name,required:true},
+      {key:'jobTitle',label:'المسمى الوظيفي',value:e.jobTitle},
+      {key:'phone',label:'الجوال',value:e.phone}
+    ],
+
+    onSave:async v=>{
+
+      const row=await updateRow('employees',id,{
+        name:v.name,
+        job_title:v.jobTitle,
+        phone:v.phone
+      });
+
+      Object.assign(e,mapEmployee(row));
+
+      toast('تم حفظ التعديل');
+
+      renderAdmin();
+    }
+  });
+}
+
+async function addEmployee(e){
+
+  e.preventDefault();
+
+  try{
+
+    const row=await sb(
+      db()
+      .from('employees')
+      .insert({
+        name:$('employeeName').value.trim(),
+        job_title:$('employeeJob').value.trim(),
+        phone:$('employeePhone').value.trim(),
+        login_code:genTeacherCode()
+      })
+      .select()
+      .single()
+    );
+
+    DATA.employees.push(mapEmployee(row));
+
+    toast(
+      `تمت إضافة الموظف — كود الدخول: ${row.login_code}`
+    );
+
+    renderAdmin();
+
+  }catch(x){
+
+    toast(friendlyError(x),true);
+  }
+}
+
+async function regenerateEmployeeCode(id){
+
+  if(!confirm(
+    'توليد كود دخول جديد لهذا الموظف؟ سيتوقف الكود القديم عن العمل فورًا.'
+  )){
+    return;
+  }
+
+  try{
+
+    const row=await updateRow('employees',id,{
+      login_code:genTeacherCode()
+    });
+
+    const emp=getEmployee(id);
+
+    if(emp){
+      emp.loginCode=row.login_code;
+    }
+
+    toast(`الكود الجديد: ${row.login_code}`);
+
+    renderAdmin();
+
+  }catch(x){
+
+    toast(friendlyError(x),true);
+  }
+}
+
+async function deleteEmployee(id){
+
+  if(!confirm(
+    'حذف هذا الموظف؟ سيُزال من المهام المشترك فيها (المهام نفسها تبقى).'
+  )){
+    return;
+  }
+
+  try{
+
+    const affected=
+      DATA.tasks.filter(t=>t.employeeIds.includes(id));
+
+    for(const t of affected){
+
+      const row=await updateRow('tasks',t.id,{
+        employee_ids:t.employeeIds.filter(x=>x!==id)
+      });
+
+      DATA.tasks=
+        DATA.tasks.map(x=>x.id===t.id?mapTask(row):x);
+    }
+
+    await sb(
+      db()
+      .from('employees')
+      .delete()
+      .eq('id',id)
+    );
+
+    DATA.employees=
+      DATA.employees.filter(x=>x.id!==id);
+
+    toast('تم حذف الموظف');
+
+    renderAdmin();
+
+  }catch(x){
+
+    toast(friendlyError(x),true);
+  }
+}
+
+/* ---------- حذف جماعي للمهام ---------- */
 
 async function clearStaffData(mode){
 
@@ -6341,12 +6991,13 @@ async function clearStaffData(mode){
 
     const what=
       mode==='everything'
-        ? `كل الموظفين (${DATA.employees.length}) وكل المهام (${total})`
+        ? `كل المجموعات (${DATA.groups.length}) والموظفين (${DATA.employees.length}) والمهام (${total})`
         : `كل المهام (${total})`;
 
     if(
       mode==='all' && !total ||
-      mode==='everything' && !total && !DATA.employees.length
+      mode==='everything' &&
+        !total && !DATA.employees.length && !DATA.groups.length
     ){
       toast('لا توجد بيانات للحذف.');
       return;
@@ -6382,12 +7033,18 @@ async function clearStaffData(mode){
       if(mode==='everything'){
 
         await sb(
+          db().from('task_groups').delete().neq('id',NIL_UUID)
+        );
+
+        await sb(
           db().from('employees').delete().neq('id',NIL_UUID)
         );
 
+        DATA.groups=[];
         DATA.employees=[];
 
-        adminStaffEmployee='all';
+        staffNav.admin.view='home';
+        staffNav.admin.group=null;
         staffDraft=[];
         staffDraftDue='';
       }
@@ -6396,94 +7053,6 @@ async function clearStaffData(mode){
     toast('تم الحذف');
 
     renderAdmin();
-
-  }catch(x){
-
-    toast(friendlyError(x),true);
-  }
-}
-
-async function deleteTask(id){
-
-  if(!confirm('حذف هذه المهمة؟')) return;
-
-  try{
-
-    await sb(
-      db()
-      .from('tasks')
-      .delete()
-      .eq('id',id)
-    );
-
-    DATA.tasks=
-      DATA.tasks.filter(t=>t.id!==id);
-
-    toast('تم حذف المهمة');
-
-    renderAdmin();
-
-  }catch(x){
-
-    toast(friendlyError(x),true);
-  }
-}
-
-async function setTaskStatus(id,status){
-
-  try{
-
-    const row=await sb(
-      db()
-      .from('tasks')
-      .update({
-        status,
-        updated_at:new Date().toISOString()
-      })
-      .eq('id',id)
-      .select()
-      .single()
-    );
-
-    const mapped=mapTask(row);
-
-    DATA.tasks=
-      DATA.tasks.map(t=>t.id===id?mapped:t);
-
-    toast(`الحالة: ${taskStatusLabel(status)}`);
-
-    rerenderStaffViews();
-
-  }catch(x){
-
-    toast(friendlyError(x),true);
-
-    rerenderStaffViews();
-  }
-}
-
-async function saveTaskNote(id,note){
-
-  try{
-
-    const row=await sb(
-      db()
-      .from('tasks')
-      .update({
-        employee_note:note.trim(),
-        updated_at:new Date().toISOString()
-      })
-      .eq('id',id)
-      .select()
-      .single()
-    );
-
-    const mapped=mapTask(row);
-
-    DATA.tasks=
-      DATA.tasks.map(t=>t.id===id?mapped:t);
-
-    toast('تم حفظ الملاحظة');
 
   }catch(x){
 
@@ -6503,7 +7072,7 @@ function renderEmployeeNav(){
     'tasks',
     'لوحة المهام',
     employeeTab==='tasks',
-    "employeeTab='tasks';renderEmployee()"
+    "employeeTab='tasks';staffNav.employee.view='home';renderEmployee()"
   );
 }
 
@@ -6516,222 +7085,450 @@ function renderEmployee(){
 
   if(!m) return;
 
-  const emp=getEmployee(currentEmployeeId);
+  m.innerHTML=renderStaffRoute(false);
+}
 
-  const all=DATA.tasks;
+/* =========================================================
+   نافذة التعديل الموحّدة + تعديل بقية الأقسام
+   ========================================================= */
 
-  const c=taskCounts(all);
+async function updateRow(table,id,payload){
 
-  const mineAll=
-    all.filter(t=>t.employeeId===currentEmployeeId);
-
-  let tasks=all.slice();
-
-  if(employeeFilter==='mine'){
-    tasks=tasks.filter(t=>t.employeeId===currentEmployeeId);
-  }
-
-  if(employeeStatusFilter!=='all'){
-    tasks=tasks.filter(t=>t.status===employeeStatusFilter);
-  }
-
-  const order={todo:0,doing:1,done:2};
-
-  tasks.sort((a,b)=>
-    (order[a.status]-order[b.status]) ||
-    String(a.dueDate||'9999').localeCompare(String(b.dueDate||'9999'))
+  const rows=await sb(
+    db()
+    .from(table)
+    .update(payload)
+    .eq('id',id)
+    .select()
   );
 
-  m.innerHTML=panel(
-    `لوحة المهام${emp?.jobTitle?` — ${esc(emp.jobTitle)}`:''}`,
+  if(!rows || !rows.length){
 
-    `
-    <div class="stats-grid">
+    throw new Error(
+      'لم يتم حفظ التعديل — شغّل ملف v2_setup.sql في Supabase ثم أعد المحاولة.'
+    );
+  }
 
-      <div class="stat-card">
-        <strong>${c.total}</strong>
-        <span>إجمالي المهام</span>
+  return rows[0];
+}
+
+function modalFieldHtml(f){
+
+  const v=f.value==null?'':String(f.value);
+
+  const label=
+    `<label class="modal-label">${esc(f.label)}</label>`;
+
+  if(f.type==='textarea'){
+
+    return `
+      <div class="field">
+        ${label}
+        <textarea
+          name="${f.key}"
+          class="input"
+          rows="${f.rows||3}"
+          ${f.required?'required':''}>${esc(v)}</textarea>
       </div>
+    `;
+  }
 
-      <div class="stat-card">
-        <strong>${c.todo}</strong>
-        <span>لم تتم</span>
+  if(f.type==='select'){
+
+    return `
+      <div class="field">
+        ${label}
+        <select name="${f.key}" class="input">
+          ${f.options.map(o=>`
+            <option
+              value="${esc(String(o.value))}"
+              ${String(o.value)===v?'selected':''}>
+              ${esc(o.label)}
+            </option>
+          `).join('')}
+        </select>
       </div>
+    `;
+  }
 
-      <div class="stat-card">
-        <strong>${c.doing}</strong>
-        <span>قيد العمل</span>
-      </div>
+  if(f.type==='checkboxes'){
 
-      <div class="stat-card">
-        <strong>${c.done}</strong>
-        <span>تمت</span>
-      </div>
+    const picked=f.value||[];
 
-    </div>
+    return `
+      <div class="field">
 
-    <div class="dashboard-highlight">
+        ${label}
 
-      <h3>إنجاز الموظفين</h3>
-
-      ${DATA.employees.map(e=>{
-
-        const mine=
-          DATA.tasks.filter(t=>t.employeeId===e.id);
-
-        const pct=donePercent(mine);
-
-        return `
-          <div class="progress-row">
-
-            <span class="progress-label">
-              ${esc(e.name)}${e.id===currentEmployeeId?' (أنت)':''}
-            </span>
-
-            ${
-              mine.length
-              ? progressBarHtml(pct)
-              : '<div class="progress-track"></div>'
-            }
-
-            <span class="progress-pct">
-              ${mine.length?pct+'%':'-'}
-            </span>
-
-          </div>
-        `;
-      }).join('')}
-
-    </div>
-
-    <div class="toolbar">
-
-      <label>عرض</label>
-
-      <select
-        class="input"
-        style="width:auto;"
-        onchange="employeeFilter=this.value;renderEmployee()">
-
-        <option value="all" ${employeeFilter==='all'?'selected':''}>
-          كل المهام
-        </option>
-
-        <option value="mine" ${employeeFilter==='mine'?'selected':''}>
-          مهامي فقط (${mineAll.length})
-        </option>
-
-      </select>
-
-      <label>الحالة</label>
-
-      <select
-        class="input"
-        style="width:auto;"
-        onchange="employeeStatusFilter=this.value;renderEmployee()">
-
-        <option value="all">الكل</option>
-
-        ${TASK_STATUSES.map(s=>`
-          <option
-            value="${s.key}"
-            ${employeeStatusFilter===s.key?'selected':''}>
-            ${s.label}
-          </option>
-        `).join('')}
-
-      </select>
-
-    </div>
-
-    <div class="table-wrap">
-
-      <table>
-
-        <thead>
-          <tr>
-            <th>الموظف</th>
-            <th>المهمة</th>
-            <th>الاستحقاق</th>
-            <th>الحالة</th>
-            <th>تحديث الحالة</th>
-            <th>ملاحظة</th>
-          </tr>
-        </thead>
-
-        <tbody>
+        <div class="assignee-grid">
 
           ${
-            tasks.length
-            ? tasks.map(t=>{
-
-                const mine=
-                  t.employeeId===currentEmployeeId;
-
-                return `
-
-                  <tr class="${mine?'mine-row':''}">
-
-                    <td>
-                      ${esc(getEmployee(t.employeeId)?.name||'-')}
-                      ${mine?'<span class="mine-tag">مهمتي</span>':''}
-                    </td>
-
-                    <td>
-                      <b>${esc(t.title)}</b>
-                      ${
-                        t.description
-                        ? `<div class="hint" style="text-align:right;margin-top:4px;white-space:pre-wrap;">${esc(t.description)}</div>`
-                        : ''
-                      }
-                    </td>
-
-                    <td>
-                      ${t.dueDate?fmtDate(t.dueDate):'-'}
-                    </td>
-
-                    <td>
-                      ${statusBadge(t)}
-                    </td>
-
-                    <td>
-                      ${statusSelect(t)}
-                    </td>
-
-                    <td>
-                      ${
-                        mine
-                        ? `
-                          <input
-                            class="input"
-                            placeholder="ملاحظة (اختياري)"
-                            value="${esc(t.employeeNote)}"
-                            onchange="saveTaskNote('${t.id}',this.value)">
-                        `
-                        : esc(t.employeeNote||'-')
-                      }
-                    </td>
-
-                  </tr>
-
-                `;
-              }).join('')
-            : `
-              <tr>
-                <td colspan="6">
-                  لا توجد مهام مطابقة.
-                </td>
-              </tr>
-            `
+            f.options.length
+            ? f.options.map(o=>`
+                <label class="assignee-chip">
+                  <input
+                    type="checkbox"
+                    name="${f.key}"
+                    value="${esc(String(o.value))}"
+                    ${picked.includes(o.value)?'checked':''}>
+                  <span>${esc(o.label)}</span>
+                </label>
+              `).join('')
+            : '<span class="hint">لا يوجد موظفون بعد.</span>'
           }
 
-        </tbody>
+        </div>
 
-      </table>
+        <div style="display:flex;gap:6px;margin-top:8px;">
+
+          <button
+            type="button"
+            class="btn ghost small"
+            onclick="this.closest('.field').querySelectorAll('input[type=checkbox]').forEach(c=>{c.checked=true;})">
+            تحديد الكل
+          </button>
+
+          <button
+            type="button"
+            class="btn ghost small"
+            onclick="this.closest('.field').querySelectorAll('input[type=checkbox]').forEach(c=>{c.checked=false;})">
+            إلغاء التحديد
+          </button>
+
+        </div>
+
+      </div>
+    `;
+  }
+
+  return `
+    <div class="field">
+      ${label}
+      <input
+        name="${f.key}"
+        type="${f.type||'text'}"
+        class="input"
+        value="${esc(v)}"
+        ${f.min!=null?`min="${f.min}"`:''}
+        ${f.required?'required':''}>
+    </div>
+  `;
+}
+
+function openEditModal(cfg){
+
+  closeEditModal();
+
+  const wrap=document.createElement('div');
+
+  wrap.id='editModal';
+  wrap.className='modal-backdrop';
+
+  wrap.innerHTML=`
+
+    <div class="modal-box" role="dialog">
+
+      <h3>${esc(cfg.title)}</h3>
+
+      <form id="editModalForm">
+
+        ${cfg.fields.map(modalFieldHtml).join('')}
+
+        <div class="modal-actions">
+
+          <button
+            type="submit"
+            class="btn primary">
+            حفظ
+          </button>
+
+          <button
+            type="button"
+            class="btn ghost"
+            onclick="closeEditModal()">
+            إلغاء
+          </button>
+
+        </div>
+
+      </form>
 
     </div>
-    `
-  );
+
+  `;
+
+  wrap.addEventListener('mousedown',e=>{
+
+    if(e.target===wrap){
+      closeEditModal();
+    }
+  });
+
+  document.body.appendChild(wrap);
+
+  const form=wrap.querySelector('form');
+
+  form.addEventListener('submit',async ev=>{
+
+    ev.preventDefault();
+
+    const fd=new FormData(form);
+
+    const vals={};
+
+    cfg.fields.forEach(f=>{
+
+      vals[f.key]=
+        f.type==='checkboxes'
+          ? fd.getAll(f.key)
+          : String(fd.get(f.key)??'').trim();
+    });
+
+    const btn=form.querySelector('button[type=submit]');
+
+    btn.disabled=true;
+
+    try{
+
+      await cfg.onSave(vals);
+
+      closeEditModal();
+
+    }catch(x){
+
+      btn.disabled=false;
+
+      toast(friendlyError(x),true);
+    }
+  });
+
+  wrap.querySelector('input,textarea,select')?.focus();
+}
+
+function closeEditModal(){
+
+  document.getElementById('editModal')?.remove();
+}
+
+document.addEventListener('keydown',e=>{
+
+  if(e.key==='Escape'){
+    closeEditModal();
+  }
+});
+
+/* ---------- القاعات ---------- */
+
+function editRoom(id){
+
+  const r=getRoom(id);
+
+  if(!r) return;
+
+  openEditModal({
+
+    title:'تعديل القاعة',
+
+    fields:[
+      {key:'name',label:'اسم القاعة',value:r.name,required:true},
+      {key:'course',label:'الدورة / المستوى',value:r.course},
+      {key:'duration',label:'مدة الدورة (عدد الأسابيع)',type:'number',min:1,value:r.durationWeeks||''},
+      {key:'teacherId',label:'المعلم',type:'select',value:r.teacherId||'',
+        options:[
+          {value:'',label:'بدون معلم'},
+          ...DATA.teachers.map(t=>({value:t.id,label:t.name}))
+        ]}
+    ],
+
+    onSave:async v=>{
+
+      const row=await updateRow('rooms',id,{
+        name:v.name,
+        course:v.course,
+        duration_weeks:v.duration?Number(v.duration):null,
+        teacher_id:v.teacherId||null
+      });
+
+      Object.assign(r,mapRoom(row));
+
+      toast('تم حفظ التعديل');
+
+      renderAdmin();
+    }
+  });
+}
+
+/* ---------- المعلمون ---------- */
+
+function editTeacher(id){
+
+  const t=getTeacher(id);
+
+  if(!t) return;
+
+  openEditModal({
+
+    title:'تعديل المعلم',
+
+    fields:[
+      {key:'name',label:'الاسم',value:t.name,required:true},
+      {key:'phone',label:'الجوال',value:t.phone}
+    ],
+
+    onSave:async v=>{
+
+      const row=await updateRow('teachers',id,{
+        name:v.name,
+        phone:v.phone
+      });
+
+      Object.assign(t,mapTeacher(row));
+
+      toast('تم حفظ التعديل');
+
+      renderAdmin();
+    }
+  });
+}
+
+/* ---------- الطلاب ---------- */
+
+function editStudent(id){
+
+  const s=getStudent(id);
+
+  if(!s) return;
+
+  openEditModal({
+
+    title:'تعديل الطالب',
+
+    fields:[
+      {key:'name',label:'الاسم',value:s.name,required:true},
+      {key:'phone',label:'الجوال',value:s.phone},
+      {key:'roomId',label:'القاعة',type:'select',value:s.roomId||'',
+        options:[
+          {value:'',label:'بدون قاعة'},
+          ...DATA.rooms.map(r=>({value:r.id,label:r.name}))
+        ]}
+    ],
+
+    onSave:async v=>{
+
+      const row=await updateRow('students',id,{
+        name:v.name,
+        phone:v.phone,
+        room_id:v.roomId||null
+      });
+
+      Object.assign(s,mapStudent(row));
+
+      sortStudents();
+
+      toast('تم حفظ التعديل');
+
+      renderAdmin();
+    }
+  });
+}
+
+/* ---------- الإعلانات ---------- */
+
+function editAnnouncement(id){
+
+  const a=DATA.announcements.find(x=>x.id===id);
+
+  if(!a) return;
+
+  openEditModal({
+
+    title:'تعديل الإعلان',
+
+    fields:[
+      {key:'message',label:'نص الإعلان',type:'textarea',rows:5,value:a.text,required:true}
+    ],
+
+    onSave:async v=>{
+
+      const row=await updateRow('announcements',id,{
+        message:v.message
+      });
+
+      Object.assign(a,mapAnnouncement(row));
+
+      toast('تم حفظ التعديل');
+
+      renderAdmin();
+    }
+  });
+}
+
+/* ---------- خصومات المعلمين ---------- */
+
+function editDeduction(id){
+
+  const d=DATA.teacherDeductions.find(x=>x.id===id);
+
+  if(!d) return;
+
+  openEditModal({
+
+    title:'تعديل الخصم',
+
+    fields:[
+      {key:'reason',label:'السبب',value:d.reason,required:true},
+      {key:'points',label:'عدد النقاط',type:'number',min:1,value:d.points,required:true}
+    ],
+
+    onSave:async v=>{
+
+      const row=await updateRow('teacher_deductions',id,{
+        reason:v.reason,
+        amount:Number(v.points)
+      });
+
+      Object.assign(d,mapDeduction(row));
+
+      toast('تم حفظ التعديل');
+
+      renderAdmin();
+    }
+  });
+}
+
+/* ---------- التقارير ---------- */
+
+function editReport(id){
+
+  const r=DATA.reports.find(x=>x.id===id);
+
+  if(!r) return;
+
+  openEditModal({
+
+    title:'تعديل التقرير',
+
+    fields:[
+      {key:'week',label:'الأسبوع',value:r.week},
+      {key:'content',label:'نص التقرير',type:'textarea',rows:6,value:r.content},
+      {key:'driveLink',label:'رابط الملفات (اختياري)',value:r.driveLink}
+    ],
+
+    onSave:async v=>{
+
+      const row=await updateRow('reports',id,{
+        week:v.week,
+        content:v.content,
+        drive_link:v.driveLink
+      });
+
+      Object.assign(r,mapReport(row));
+
+      toast('تم حفظ التعديل');
+
+      renderAdmin();
+    }
+  });
 }
 
 /* =========================================================
@@ -6759,6 +7556,8 @@ const WIPE_ITEMS = [
    count:()=>DATA.teachers.length},
   {key:'tasks',        label:'المهام',                table:'tasks',              col:'id',      needs:[],
    count:()=>DATA.tasks.length},
+  {key:'groups',       label:'مجموعات المهام',        table:'task_groups',        col:'id',      needs:['tasks'],
+   count:()=>DATA.groups.length},
   {key:'employees',    label:'الموظفون',              table:'employees',          col:'id',      needs:['tasks'],
    count:()=>DATA.employees.length}
 ];
