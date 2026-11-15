@@ -69,6 +69,20 @@
         <button class="btn secondary block" onclick="teacherCodeLogin()">دخول المعلم/ـة</button>
         <div class="hint">استخدم اسمك وكود الدخول الذي أعطتك إياه الإدارة.</div>
       </div>
+
+      <hr>
+
+      <div class="login-section">
+        <label>الموظف/ـة</label>
+        <div class="field">
+          <select id="employeeSelect"><option value="">جاري تحميل الأسماء...</option></select>
+        </div>
+        <div class="field">
+          <input type="text" id="employeeCodeInput" placeholder="كود الدخول (مثال: K4M92)">
+        </div>
+        <button class="btn ghost block" onclick="employeeCodeLogin()">دخول الموظف/ـة</button>
+        <div class="hint">استخدم اسمك وكود الدخول الذي أعطتك إياه الإدارة.</div>
+      </div>
     </div>
   </div>
 </section>
@@ -86,6 +100,14 @@
   <div class="layout">
     <nav class="sidebar" id="teacherNav"></nav>
     <div class="main-panel" id="teacherMain"></div>
+  </div>
+</section>
+
+<!-- لوحة الموظف -->
+<section id="screen-employee" class="screen">
+  <div class="layout">
+    <nav class="sidebar" id="employeeNav"></nav>
+    <div class="main-panel" id="employeeMain"></div>
   </div>
 </section>
 
