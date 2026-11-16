@@ -78,7 +78,10 @@ function emptyData(){
     teacherDeductions:[],
     employees:[],
     tasks:[],
-    groups:[]
+    groups:[],
+    teacherScores:[],
+    evalSettings:evEmptySettings(),
+    ceoReports:[]
   };
 }
 
@@ -165,7 +168,8 @@ function mapEmployee(r){
     name:r.name,
     phone:r.phone||'',
     jobTitle:r.job_title||'',
-    loginCode:r.login_code||''
+    loginCode:r.login_code||'',
+    isCeo:!!r.is_ceo
   };
 }
 
@@ -308,6 +312,7 @@ function mapTeacher(r){
     phone:r.phone||'',
     userId:r.user_id||'',
     loginCode:r.login_code||'',
+    gender:r.gender||'',
     lastSeenAnnounce:r.last_seen_announce||null,
     driveFolderId:r.drive_folder_id||'',
     driveFolderUrl:r.drive_folder_url||''
@@ -396,6 +401,7 @@ function mapReport(r){
     content:r.content||'',
     driveLink:r.drive_link||'',
     images:Array.isArray(r.images)?r.images:[],
+    sentToCeo:!!r.sent_to_ceo,
     date:r.created_at
   };
 }
@@ -509,6 +515,8 @@ async function loadData(){
     localStorage.getItem(AUTO_EXPORT_KEY)==='1';
 
   await loadStaffData();
+  await loadEvalData();
+  await loadCeoInbox();
 }
 
 async function loadStaffData(){
@@ -525,7 +533,7 @@ async function loadStaffData(){
   try{
 
     const empQ=db().from('employees')
-      .select(isAdmin?'*':'id,name,job_title')
+      .select(isAdmin?'*':'id,name,job_title,is_ceo')
       .order('created_at',{ascending:true});
 
     const taskQ=db().from('tasks').select('*')
@@ -581,13 +589,13 @@ async function populateEmployeeSelect(){
     const rows=await sb(
       db()
       .from('employees')
-      .select('id,name')
+      .select('id,name,is_ceo')
       .order('name',{ascending:true})
     );
 
     sel.innerHTML=
       '<option value="">اختر اسمك...</option>'+
-      (rows||[]).map(t=>`
+      (rows||[]).filter(t=>!t.is_ceo).map(t=>`
         <option value="${t.id}">${esc(t.name)}</option>
       `).join('');
 
@@ -631,6 +639,16 @@ async function employeeCodeLogin(){
 
       toast(
         'الكود غير صحيح.',
+        true
+      );
+
+      return;
+    }
+
+    if(row.is_ceo){
+
+      toast(
+        'استخدم خانة "الرئيس التنفيذي" للدخول.',
         true
       );
 
@@ -864,6 +882,8 @@ function resetSession(){
   currentAdmin=false;
   currentTeacherId=null;
   currentEmployeeId=null;
+  currentIsCeo=false;
+  currentCeoCode='';
 
 }
 
@@ -875,6 +895,10 @@ async function logout(){
 
       localStorage.removeItem(
         'saqifah:employeeSession'
+      );
+
+      localStorage.removeItem(
+        'saqifah:ceoSession'
       );
 
     }else if(currentUser?.codeLogin){
@@ -912,7 +936,7 @@ function renderHeaderActions(){
   h.innerHTML=currentUser
     ? `
       <span class="user-chip">
-        ${esc(
+        ${currentUser?.ceoLogin?'👑 ':''}${esc(
           currentProfile?.full_name||
           currentUser.name||
           currentUser.email
@@ -1407,6 +1431,15 @@ function renderAdminTeachers(){
         class="input"
         placeholder="رقم الجوال">
 
+      <select
+        id="teacherGender"
+        class="input">
+
+        <option value="m">معلّم</option>
+        <option value="f">معلّمة</option>
+
+      </select>
+
       <button
         class="btn primary">
 
@@ -1426,6 +1459,7 @@ function renderAdminTeachers(){
 
             <th>الاسم</th>
             <th>الجوال</th>
+            <th>الفئة</th>
             <th>كود الدخول</th>
             <th>القاعات</th>
             <th>مجلد Drive</th>
@@ -1447,6 +1481,10 @@ function renderAdminTeachers(){
 
               <td>
                 ${esc(t.phone)}
+              </td>
+
+              <td>
+                ${evGenderPill(t.gender)||'-'}
               </td>
 
               <td class="ltr">
@@ -1533,6 +1571,9 @@ async function addTeacher(e){
 
         phone:
           $('teacherPhone').value.trim(),
+
+        gender:
+          $('teacherGender').value,
 
         login_code:genTeacherCode()
 
@@ -1790,22 +1831,287 @@ async function syncTeacherDriveNow(tid){
 }
 
 /* =========================================================
-   تقييم المعلمين
+   تقييم المعلمين والمعلمات (مدمج من منصة التقييم الأخرى)
    ========================================================= */
 
-function getTeacherDurationWeeks(teacherId){
+const EV_DEFAULT_CRITERIA = [
+  { key:'nonClass',   label:'المهام غير الصفية',            max:10 },
+  { key:'kahoot',     label:'الألعاب اللغوية (كاهوت)',      max:10 },
+  { key:'punctual',   label:'الالتزام بمواعيد المحاضرات',   max:10 },
+  { key:'attendance', label:'الحضور المبكر والتأخر',        max:10 },
+  { key:'creativity', label:'الابتكار والإبداع التعليمي',   max:10 },
+  { key:'ppt',        label:'عروض البوربوينت',              max:10 },
+  { key:'enrich',     label:'الأنشطة الإثرائية',            max:10 },
+  { key:'ai',         label:'تفعيل أدوات الذكاء الاصطناعي', max:10 }
+];
 
-  const durations=
-    DATA.rooms
-      .filter(r=>r.teacherId===teacherId)
-      .map(r=>r.durationWeeks)
-      .filter(Boolean);
+const EV_LOGO_PROGRAM = 'assets/Arabic_logo.png';
+const EV_LOGO_ORG = 'assets/logo-saqifah.png';
 
-  if(!durations.length){
-    return 24;
+let evTab = 'score';
+let evWeek = 1;
+let evReportWeek = 1;
+let evDraft = {};
+let evCritEditorOpen = false;
+let evCertEditorOpen = false;
+let evReportEditorOpen = false;
+let evCertTeacherId = '';
+let evDeductTeacher = '';
+const evSaveTimers = {};
+
+function evEmptySettings(){
+  return {course:null, criteria:null, cert:null, report:null, reportNotes:{}};
+}
+
+function mapTeacherScore(r){
+  return {
+    id:r.id,
+    teacherId:r.teacher_id,
+    week:Number(r.week||1),
+    scores:r.scores||{}
+  };
+}
+
+/* ---------- تحميل وحفظ الإعدادات ---------- */
+
+async function loadEvalData(){
+
+  DATA.teacherScores=[];
+  DATA.evalSettings=evEmptySettings();
+
+  const isAdmin=
+    currentAdmin || currentProfile?.role==='admin';
+
+  if(!isAdmin) return;
+
+  try{
+
+    const [scores,settings]=await Promise.all([
+      sb(db().from('teacher_scores').select('*')).catch(()=>[]),
+      sb(db().from('app_settings').select('*')).catch(()=>[])
+    ]);
+
+    DATA.teacherScores=(scores||[]).map(mapTeacherScore);
+
+    (settings||[]).forEach(r=>{
+
+      if(r.key==='course')       DATA.evalSettings.course=r.value;
+      if(r.key==='criteria')     DATA.evalSettings.criteria=r.value;
+      if(r.key==='cert')         DATA.evalSettings.cert=r.value;
+      if(r.key==='report')       DATA.evalSettings.report=r.value;
+      if(r.key==='report_notes') DATA.evalSettings.reportNotes=r.value||{};
+    });
+
+  }catch(e){
+
+    console.warn('تعذر تحميل بيانات تقييم المعلمين:',e);
+  }
+}
+
+function evQueueSave(key){
+
+  clearTimeout(evSaveTimers[key]);
+
+  evSaveTimers[key]=setTimeout(()=>evSaveSetting(key),700);
+}
+
+async function evSaveSetting(key){
+
+  const s=DATA.evalSettings;
+
+  const values={
+    course:s.course,
+    criteria:s.criteria,
+    cert:s.cert,
+    report:s.report,
+    report_notes:s.reportNotes
+  };
+
+  try{
+
+    await sb(
+      db()
+      .from('app_settings')
+      .upsert(
+        {
+          key,
+          value:values[key]??null,
+          updated_at:new Date().toISOString()
+        },
+        {onConflict:'key'}
+      )
+    );
+
+  }catch(x){
+
+    toast(
+      'تعذر حفظ الإعدادات — شغّل ملف v3_setup.sql في Supabase. '+friendlyError(x),
+      true
+    );
+  }
+}
+
+/* ---------- الحسابات ---------- */
+
+function evCriteria(){
+
+  const c=DATA.evalSettings.criteria;
+
+  return Array.isArray(c)&&c.length?c:EV_DEFAULT_CRITERIA;
+}
+
+function evEnsureCriteria(){
+
+  const s=DATA.evalSettings;
+
+  if(!Array.isArray(s.criteria)||!s.criteria.length){
+    s.criteria=EV_DEFAULT_CRITERIA.map(c=>({...c}));
   }
 
-  return Math.max(...durations);
+  return s.criteria;
+}
+
+function evCourseName(){
+
+  return DATA.evalSettings.course?.name || 'دورة تعلّم العربية';
+}
+
+function evCourseWeeks(){
+
+  const w=Number(DATA.evalSettings.course?.weeks);
+
+  if(w>0) return w;
+
+  const fromRooms=
+    Math.max(0,...DATA.rooms.map(r=>r.durationWeeks||0));
+
+  return fromRooms||4;
+}
+
+function evScoreRow(tid,week){
+
+  return DATA.teacherScores.find(
+    r=>r.teacherId===tid && r.week===week
+  );
+}
+
+function evWeekTotal(tid,week){
+
+  const row=evScoreRow(tid,week);
+
+  if(!row) return 0;
+
+  return evCriteria().reduce(
+    (s,c)=>s+(Number(row.scores[c.key])||0),
+    0
+  );
+}
+
+function evCumulative(tid){
+
+  return DATA.teacherScores
+    .filter(r=>r.teacherId===tid)
+    .reduce((s,r)=>s+evWeekTotal(tid,r.week),0);
+}
+
+function evMaxPerWeek(){
+
+  return evCriteria().reduce((s,c)=>s+c.max,0);
+}
+
+function evSavedWeeks(){
+
+  return new Set(
+    DATA.teacherScores.map(r=>r.week)
+  ).size;
+}
+
+function getTeacherAverage(teacherId){
+
+  const weeks=
+    DATA.teacherScores.filter(r=>r.teacherId===teacherId);
+
+  const max=evMaxPerWeek();
+
+  if(!weeks.length || !max) return 0;
+
+  const total=
+    weeks.reduce((s,r)=>s+evWeekTotal(teacherId,r.week),0);
+
+  return Math.round(total/(max*weeks.length)*100);
+}
+
+function evTeachersSorted(){
+
+  const order={m:0,f:1,'':2};
+
+  return DATA.teachers
+    .slice()
+    .sort((a,b)=>
+      (order[a.gender||'']-order[b.gender||''])
+    );
+}
+
+function evRanked(){
+
+  return DATA.teachers
+    .map(t=>({t,total:evCumulative(t.id)}))
+    .sort((a,b)=>b.total-a.total);
+}
+
+function evGenderPill(g){
+
+  if(g==='f'){
+    return '<span class="gender-pill f">معلّمة</span>';
+  }
+
+  if(g==='m'){
+    return '<span class="gender-pill m">معلّم</span>';
+  }
+
+  return '';
+}
+
+function evGenderCell(t){
+
+  if(t.gender) return evGenderPill(t.gender);
+
+  return `
+    <select
+      class="input"
+      style="width:auto;padding:4px 8px;font-size:12px;"
+      onchange="evSetGender('${t.id}',this.value)">
+
+      <option value="">حدّد الفئة</option>
+      <option value="m">معلّم</option>
+      <option value="f">معلّمة</option>
+
+    </select>
+  `;
+}
+
+async function evSetGender(id,g){
+
+  if(!g) return;
+
+  try{
+
+    const row=await updateRow('teachers',id,{gender:g});
+
+    Object.assign(getTeacher(id),mapTeacher(row));
+
+    renderAdmin();
+
+  }catch(x){
+
+    toast(friendlyError(x),true);
+  }
+}
+
+/* ---------- الصفحة الرئيسية للقسم ---------- */
+
+function getTeacherDurationWeeks(){
+  return evCourseWeeks();
 }
 
 function progressBarHtml(pct){
@@ -1824,339 +2130,1879 @@ function progressBarHtml(pct){
 
 function renderAdminTeacherEval(){
 
+  const tabs=[
+    ['score','التقييم الأسبوعي'],
+    ['board','لوحة المتصدّرين'],
+    ['report','📄 التقرير الأسبوعي'],
+    ['cert','🎖️ الشهادات'],
+    ['deduct','الخصومات']
+  ];
+
+  const bodies={
+    score:renderEvScore,
+    board:renderEvBoard,
+    report:renderEvReport,
+    cert:renderEvCert,
+    deduct:renderEvDeductions
+  };
+
   return panel(
-    'تقييم المعلمين',
+    'تقييم المعلمين والمعلمات',
 
     `
-    <div class="notice">
+    <div class="subtabs">
 
-      التقييم أسبوعي ومستمر طوال مدة الدورة
-      المحددة للمعلم في قسم "القاعات
-      والدورات" — عدد الأسابيع أدناه يُحسب
-      تلقائيًا من مدة القاعة/الدورة المسندة
-      إليه.
-
-    </div>
-
-    ${renderTeacherRanking()}
-
-    <div class="toolbar">
-
-      <select
-        id="adminTeacherEvalSelect"
-        class="input"
-        onchange="adminTeacherEvalSelected=this.value;adminTeacherEvalWeek=1;renderAdmin()">
-
-        <option value="">
-          اختر معلمًا
-        </option>
-
-        ${DATA.teachers.map(t=>`
-
-          <option
-            value="${t.id}"
-            ${
-              window.adminTeacherEvalSelected===t.id
-              ?'selected'
-              :''
-            }>
-            ${esc(t.name)}
-          </option>
-
-        `).join('')}
-
-      </select>
-
-      ${
-        window.adminTeacherEvalSelected
-        ? `
-          <label>الأسبوع</label>
-          <select
-            class="input"
-            onchange="adminTeacherEvalWeek=Number(this.value);renderAdmin()">
-
-            ${Array.from(
-              {length:getTeacherDurationWeeks(window.adminTeacherEvalSelected)},
-              (_,i)=>i+1
-            ).map(w=>`
-
-              <option
-                value="${w}"
-                ${adminTeacherEvalWeek===w?'selected':''}>
-                أسبوع ${w}
-              </option>
-
-            `).join('')}
-
-          </select>
-        `
-        :''
-      }
+      ${tabs.map(([k,l])=>`
+        <button
+          class="subtab ${evTab===k?'active':''}"
+          onclick="evGoTab('${k}')">
+          ${l}
+        </button>
+      `).join('')}
 
     </div>
 
-    ${renderTeacherEvaluationEditor(
-      window.adminTeacherEvalSelected||''
-    )}
-
+    ${
+      DATA.teachers.length
+      ? bodies[evTab]()
+      : `
+        <div class="notice">
+          أضف المعلمين والمعلمات أولاً من قسم "المعلمون والمعلمات"،
+          ثم ارجع هنا للتقييم.
+        </div>
+      `
+    }
     `
   );
 }
 
-function renderTeacherRanking(){
+function evGoTab(k){
 
-  const ranked=getBestTeachers();
+  evTab=k;
+  evReportEditorOpen=false;
+  evCertEditorOpen=false;
 
-  if(!ranked.length){
+  renderAdmin();
+}
 
-    return `
-      <div class="empty">
-        لا توجد تقييمات كافية بعد لعرض ترتيب المعلمين.
-      </div>
-    `;
-  }
+/* ---------- 1) التقييم الأسبوعي ---------- */
+
+function evDraftWeek(week){
+
+  if(!evDraft[week]) evDraft[week]={};
+
+  DATA.teachers.forEach(t=>{
+
+    if(!evDraft[week][t.id]){
+
+      evDraft[week][t.id]={
+        ...(evScoreRow(t.id,week)?.scores||{})
+      };
+    }
+  });
+
+  return evDraft[week];
+}
+
+function evDraftTotal(tid,week){
+
+  const d=evDraftWeek(week)[tid]||{};
+
+  return evCriteria().reduce(
+    (s,c)=>s+(Number(d[c.key])||0),
+    0
+  );
+}
+
+function renderEvScoreTable(){
+
+  const crit=evCriteria();
+
+  const draft=evDraftWeek(evWeek);
 
   return `
 
-    <div class="dashboard-highlight">
+    <table class="score-table">
 
-      <h3>ترتيب المعلمين (الأفضل أولاً)</h3>
+      <thead>
+        <tr>
+          <th>المعلّم / المعلّمة</th>
+          ${crit.map(c=>`
+            <th>${esc(c.label)}<small>من ${c.max}</small></th>
+          `).join('')}
+          <th>الإجمالي</th>
+        </tr>
+      </thead>
 
-      ${ranked.map((x,i)=>`
+      <tbody>
 
-        <div class="progress-row">
+        ${evTeachersSorted().map(t=>`
 
-          <span class="progress-label">
-            ${i+1}. ${esc(x.teacher.name)}
-          </span>
+          <tr>
 
-          ${progressBarHtml(x.average)}
+            <td>${esc(t.name)} ${evGenderCell(t)}</td>
 
-          <span class="progress-pct">
-            ${x.average}%
-          </span>
+            ${crit.map(c=>`
+              <td>
+                <input
+                  type="number"
+                  min="0"
+                  max="${c.max}"
+                  step="1"
+                  data-t="${t.id}"
+                  data-k="${c.key}"
+                  value="${draft[t.id]?.[c.key]??''}"
+                  oninput="evOnScore(this)">
+              </td>
+            `).join('')}
+
+            <td
+              class="total-cell"
+              data-total-for="${t.id}">
+              ${evDraftTotal(t.id,evWeek)}
+            </td>
+
+          </tr>
+
+        `).join('')}
+
+      </tbody>
+
+    </table>
+
+  `;
+}
+
+function evRefreshScoreTable(){
+
+  const w=$('evScoreWrap');
+
+  if(w){
+    w.innerHTML=renderEvScoreTable();
+  }
+}
+
+function evOnScore(inp){
+
+  const max=Number(inp.max);
+
+  let v=Number(inp.value);
+
+  if(isNaN(v)) v=0;
+
+  v=Math.max(0,Math.min(max,v));
+
+  evDraftWeek(evWeek)[inp.dataset.t][inp.dataset.k]=v;
+
+  const cell=
+    document.querySelector(
+      `[data-total-for="${inp.dataset.t}"]`
+    );
+
+  if(cell){
+    cell.textContent=evDraftTotal(inp.dataset.t,evWeek);
+  }
+}
+
+function renderEvCritEditor(){
+
+  if(!evCritEditorOpen) return '';
+
+  return `
+
+    <div class="cert-editor open">
+
+      <div class="cert-editor__head">
+        <h3>✏️ معايير التقييم</h3>
+        <span class="muted small">التغييرات تُحفظ تلقائيًا وتنعكس على الجدول والتقرير مباشرة</span>
+      </div>
+
+      <p class="cert-editor__hint">
+        غيّر اسم أي معيار أو درجته القصوى، أو احذفه، أو أضف معيارًا جديدًا.
+        الدرجات المسجلة سابقًا للمعايير المحذوفة لا تُحتسب في المجموع.
+      </p>
+
+      ${evCriteria().map((c,i)=>`
+
+        <div class="crit-row">
+
+          <label class="field crit-label-wrap">
+            <span>اسم المعيار</span>
+            <input
+              type="text"
+              class="input"
+              value="${esc(c.label)}"
+              oninput="evCritInput(${i},'label',this.value)"
+              onchange="evCritBlur(${i},this)">
+          </label>
+
+          <label class="field crit-max-wrap">
+            <span>الدرجة القصوى</span>
+            <input
+              type="number"
+              class="input"
+              min="1"
+              max="100"
+              value="${c.max}"
+              oninput="evCritInput(${i},'max',this.value)"
+              onchange="renderAdmin()">
+          </label>
+
+          <button
+            type="button"
+            class="btn danger small"
+            onclick="evCritDelete(${i})">
+            🗑️ حذف
+          </button>
 
         </div>
 
       `).join('')}
 
-    </div>
+      <div class="toolbar" style="margin-top:14px;margin-bottom:0;">
 
-  `;
-}
+        <button
+          type="button"
+          class="btn primary small"
+          onclick="evCritAdd()">
+          + إضافة معيار
+        </button>
 
-function renderTeacherEvaluationHistory(tid){
+        <button
+          type="button"
+          class="btn ghost small"
+          onclick="evCritReset()">
+          ↺ استرجاع المعايير الأصلية
+        </button>
 
-  const rows=
-    DATA.teacherEvaluations
-      .filter(x=>x.teacherId===tid)
-      .sort((a,b)=>a.week-b.week);
+        <button
+          type="button"
+          class="btn ghost small"
+          onclick="evCritEditorOpen=false;renderAdmin()">
+          تم
+        </button>
 
-  if(!rows.length){
-    return '';
-  }
-
-  return `
-    <div class="notice">
-      سجل الأسابيع السابقة:
-      ${rows.map(r=>
-        `أسبوع ${r.week}: ${avgScores(r.scores,TEACHER_CRITERIA)}%`
-      ).join(' | ')}
-    </div>
-  `;
-}
-
-function renderTeacherEvaluationEditor(tid){
-
-  if(!tid){
-
-    return `
-      <div class="empty">
-        اختر معلمًا لعرض تقييمه.
       </div>
-    `;
+
+    </div>
+
+  `;
+}
+
+function evCritInput(i,field,value){
+
+  const crit=evEnsureCriteria()[i];
+
+  if(!crit) return;
+
+  if(field==='label'){
+    crit.label=value;
+  }else{
+    crit.max=Math.max(1,Math.min(100,Number(value)||1));
   }
 
-  const week=adminTeacherEvalWeek||1;
+  evQueueSave('criteria');
 
-  const row=
-    DATA.teacherEvaluations.find(
-      x=>x.teacherId===tid && x.week===week
-    );
+  evRefreshScoreTable();
+}
 
-  const scores=row?.scores||{};
-  const aiNotes=row?.aiNotes||{};
-  const evidenceLinks=row?.evidenceLinks||{};
+function evCritBlur(i,el){
+
+  const crit=evEnsureCriteria()[i];
+
+  if(crit && !String(crit.label).trim()){
+
+    crit.label='معيار جديد';
+
+    evQueueSave('criteria');
+
+    renderAdmin();
+  }
+}
+
+function evCritDelete(i){
+
+  const list=evEnsureCriteria();
+
+  if(list.length<=1){
+
+    toast('لازم يبقى معيار واحد على الأقل.',true);
+    return;
+  }
+
+  if(!confirm(
+    `حذف المعيار «${list[i].label}»؟ لن يُحتسب في المجاميع بعد الآن.`
+  )){
+    return;
+  }
+
+  list.splice(i,1);
+
+  evQueueSave('criteria');
+
+  renderAdmin();
+}
+
+function evCritAdd(){
+
+  evEnsureCriteria().push({
+    key:'c_'+Date.now(),
+    label:'معيار جديد',
+    max:10
+  });
+
+  evQueueSave('criteria');
+
+  renderAdmin();
+
+  const labels=
+    document.querySelectorAll('.crit-label-wrap input');
+
+  const last=labels[labels.length-1];
+
+  if(last){
+    last.focus();
+    last.select();
+  }
+}
+
+function evCritReset(){
+
+  if(!confirm(
+    'استرجاع المعايير الأصلية؟ سيتم حذف المعايير المضافة وتعديلاتك عليها.'
+  )){
+    return;
+  }
+
+  DATA.evalSettings.criteria=null;
+
+  evQueueSave('criteria');
+
+  renderAdmin();
+}
+
+function evSetCourse(field,value){
+
+  const c=DATA.evalSettings.course||{};
+
+  DATA.evalSettings.course={
+    ...c,
+    [field]:field==='weeks'
+      ? Math.max(1,Number(value)||1)
+      : String(value).trim()
+  };
+
+  evQueueSave('course');
+
+  if(evWeek>evCourseWeeks()){
+    evWeek=1;
+  }
+
+  renderAdmin();
+}
+
+function renderEvScore(){
+
+  const weeks=evCourseWeeks();
+
+  const noGender=
+    DATA.teachers.filter(t=>!t.gender).length;
 
   return `
 
-    ${renderTeacherEvaluationHistory(tid)}
+    <div class="card-inner">
+
+      <div class="form-grid" style="margin-bottom:0;">
+
+        <label class="field">
+          <span class="modal-label">اسم الدورة</span>
+          <input
+            class="input"
+            value="${esc(DATA.evalSettings.course?.name||'')}"
+            placeholder="مثال: دورة تعلّم العربية - الدفعة الثالثة"
+            onchange="evSetCourse('name',this.value)">
+        </label>
+
+        <label class="field">
+          <span class="modal-label">مدة الدورة (بالأسابيع)</span>
+          <input
+            class="input"
+            type="number"
+            min="1"
+            max="52"
+            value="${weeks}"
+            onchange="evSetCourse('weeks',this.value)">
+        </label>
+
+      </div>
+
+    </div>
+
+    ${
+      noGender
+      ? `
+        <div class="notice">
+          ${noGender} معلم/ة بدون فئة. حدّد الفئة (معلّم / معلّمة) من القائمة
+          بجانب اسمه في الجدول حتى يظهر في لوحة المتصدّرين.
+        </div>
+      `
+      : ''
+    }
 
     <div class="toolbar">
 
       <button
-        type="button"
-        class="btn secondary small"
-        onclick="syncTeacherDriveNow('${tid}')">
-
-        🔄 مزامنة من Drive الآن
-
+        class="btn ghost small"
+        onclick="evCritEditorOpen=!evCritEditorOpen;renderAdmin()">
+        ✏️ تعديل معايير التقييم
       </button>
 
-      ${
-        row?.autoGenerated
-        ? '<span class="hint" style="margin:0;">آخر تحديث لهذا الأسبوع جاء تلقائيًا من Drive، يمكنك تعديل أي درجة قبل الحفظ.</span>'
-        : ''
-      }
+      <label class="btn ghost small" style="cursor:pointer;">
+        ⭱ استيراد من Excel (المنصة القديمة)
+        <input
+          type="file"
+          accept=".xlsx,.xls"
+          hidden
+          onchange="evImportExcel(this)">
+      </label>
+
+      <span style="flex:1;"></span>
+
+      <div class="week-switcher">
+
+        <button
+          class="week-arrow"
+          onclick="evStepWeek(-1)">‹</button>
+
+        <span>الأسبوع ${evWeek} من ${weeks}</span>
+
+        <button
+          class="week-arrow"
+          onclick="evStepWeek(1)">›</button>
+
+      </div>
 
     </div>
 
-    <form
-      onsubmit="saveTeacherEvaluation(event,'${tid}',${week})"
-      class="eval-grid">
+    ${renderEvCritEditor()}
 
-      ${TEACHER_CRITERIA.map(c=>`
+    <div class="notice">
+      أدخل درجة كل معيار (من 0 إلى الدرجة القصوى) لكل معلم ومعلمة، ثم اضغط
+      "حفظ درجات هذا الأسبوع". الدرجات غير المحفوظة تبقى في الصفحة فقط إلى أن تحفظها.
+    </div>
 
-        <label>
+    <div class="table-scroll" id="evScoreWrap">
+      ${renderEvScoreTable()}
+    </div>
 
-          ${c.label}
-          ${
-            evidenceLinks[c.key]
-            ? `<a class="link" style="font-size:11.5px;" href="${esc(evidenceLinks[c.key])}" target="_blank" rel="noopener">📎 الملف المرفوع</a>`
-            : '<span class="hint" style="margin:0;">لا يوجد ملف مرفوع بعد</span>'
-          }
-          ${
-            aiNotes[c.key]
-            ? `<span class="hint" style="margin:0;color:var(--purple);">🤖 ${esc(aiNotes[c.key])}</span>`
-            : ''
-          }
-
-          <select
-            name="${c.key}"
-            class="input">
-
-            ${[1,2,3,4,5].map(n=>`
-
-              <option
-                value="${n}"
-                ${
-                  Number(
-                    scores[c.key]||0
-                  )===n
-                    ?'selected'
-                    :''
-                }>
-
-                ${n} — ${stars(n)}
-
-              </option>
-
-            `).join('')}
-
-          </select>
-
-        </label>
-
-      `).join('')}
-
-      <textarea
-        name="note"
-        class="input"
-        placeholder="ملاحظات">
-
-        ${esc(row?.note||'')}
-
-      </textarea>
+    <div class="toolbar" style="margin-top:16px;">
 
       <button
-        class="btn primary">
-
-        حفظ التقييم
-
+        class="btn primary"
+        onclick="evSaveWeek()">
+        حفظ درجات الأسبوع ${evWeek}
       </button>
 
-    </form>
+    </div>
+  `;
+}
+
+function evStepWeek(d){
+
+  const next=evWeek+d;
+
+  if(next<1 || next>evCourseWeeks()) return;
+
+  evWeek=next;
+
+  renderAdmin();
+}
+
+async function evSaveWeek(){
+
+  const week=evWeek;
+
+  const draft=evDraftWeek(week);
+
+  const rows=
+    DATA.teachers
+      .map(t=>({
+        teacher_id:t.id,
+        week,
+        scores:draft[t.id]||{},
+        updated_at:new Date().toISOString()
+      }))
+      .filter(r=>
+        Object.keys(r.scores).length ||
+        evScoreRow(r.teacher_id,week)
+      );
+
+  if(!rows.length){
+
+    toast('لا توجد درجات لحفظها.',true);
+    return;
+  }
+
+  try{
+
+    const saved=await sb(
+      db()
+      .from('teacher_scores')
+      .upsert(rows,{onConflict:'teacher_id,week'})
+      .select()
+    );
+
+    (saved||[]).map(mapTeacherScore).forEach(n=>{
+
+      DATA.teacherScores=
+        DATA.teacherScores.filter(
+          x=>!(x.teacherId===n.teacherId && x.week===n.week)
+        );
+
+      DATA.teacherScores.push(n);
+    });
+
+    toast(`تم حفظ درجات الأسبوع ${week}`);
+
+  }catch(x){
+
+    toast(
+      'تعذر الحفظ — تأكد من تشغيل v3_setup.sql. '+friendlyError(x),
+      true
+    );
+  }
+}
+
+/* ---------- 2) لوحة المتصدرين ---------- */
+
+function evWinnerCard(label,item){
+
+  if(!item || item.total===0){
+
+    return `
+      <div class="winner-card empty">
+        <span class="medal">🏆</span>
+        <span class="label">${label}</span>
+        <div class="name">— لا توجد نتائج بعد —</div>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="winner-card">
+      <span class="medal">🏆</span>
+      <span class="label">${label}</span>
+      <div class="name">${esc(item.t.name)}</div>
+      <span class="pts">${item.total} نقطة</span>
+    </div>
+  `;
+}
+
+function renderEvBoard(){
+
+  const ranked=evRanked();
+
+  const bestM=ranked.find(x=>x.t.gender==='m' && x.total>0);
+  const bestF=ranked.find(x=>x.t.gender==='f' && x.total>0);
+
+  const weeksSaved=evSavedWeeks()||1;
+
+  const maxTotal=evMaxPerWeek()*weeksSaved;
+
+  return `
+
+    <div class="notice">
+      مجموع النقاط التراكمي عبر كل الأسابيع المحفوظة.
+    </div>
+
+    <div class="winners">
+      ${evWinnerCard('أفضل معلّم',bestM)}
+      ${evWinnerCard('أفضل معلّمة',bestF)}
+    </div>
+
+    <div class="table-scroll">
+
+      <table class="rank-table">
+
+        <thead>
+          <tr>
+            <th>الترتيب</th>
+            <th>الاسم</th>
+            <th>الفئة</th>
+            <th>مجموع النقاط</th>
+            <th style="width:30%;">النسبة</th>
+          </tr>
+        </thead>
+
+        <tbody>
+
+          ${ranked.map((x,i)=>{
+
+            const pct=
+              maxTotal?Math.round(x.total/maxTotal*100):0;
+
+            return `
+              <tr>
+
+                <td>${i+1}</td>
+
+                <td>${esc(x.t.name)}</td>
+
+                <td>${evGenderPill(x.t.gender)||'-'}</td>
+
+                <td>${x.total}</td>
+
+                <td>
+                  <div class="progress-row" style="margin:0;">
+                    ${progressBarHtml(pct)}
+                    <span class="progress-pct">${pct}%</span>
+                  </div>
+                </td>
+
+              </tr>
+            `;
+          }).join('')}
+
+        </tbody>
+
+      </table>
+
+    </div>
 
   `;
 }
 
-async function saveTeacherEvaluation(e,tid,week){
+/* ---------- أدوات التاريخ والطباعة ---------- */
 
-  e.preventDefault();
+function evTodayStrings(){
 
-  const f=new FormData(e.target);
+  const now=new Date();
 
-  const w=Number(week)||1;
+  const hijri=
+    now.toLocaleDateString(
+      'ar-SA-u-ca-islamic-umalqura',
+      {year:'numeric',month:'long',day:'numeric'}
+    )
+    .replace(/[\s\u200f\u200e]*ه[ـ\u200d]?[\s\u200f\u200e]*$/,'')
+    .trim();
 
-  const payload={
-    teacher_id:tid,
-    week:w,
-    note:f.get('note')||'',
-    auto_generated:false
+  const greg=
+    now.toLocaleDateString(
+      'ar-SA-u-ca-gregory',
+      {year:'numeric',month:'long',day:'numeric'}
+    )
+    .replace(/[\s\u200f\u200e]*م[\s\u200f\u200e]*$/,'')
+    .trim();
+
+  return {hijri,greg};
+}
+
+function evFmt(text,vars){
+
+  return esc(text)
+    .replace(/\{الأسبوع\}/g,vars.week??'')
+    .replace(/\{الدورة\}/g,esc(vars.course??''))
+    .replace(/\{عدد الأسابيع\}/g,vars.weeks??'')
+    .replace(/\{النقاط\}/g,'<b>'+(vars.total??'')+'</b>')
+    .replace(/\n/g,'<br>');
+}
+
+function evPrint(mode,title,html){
+
+  document.getElementById('printRoot')?.remove();
+
+  const root=document.createElement('div');
+
+  root.id='printRoot';
+  root.innerHTML=html;
+
+  document.body.appendChild(root);
+
+  const pageStyle=document.createElement('style');
+
+  pageStyle.textContent=
+    mode==='report'
+      ? '@page{size:A4 landscape;margin:9mm 10mm;}'
+      : '@page{size:A4 landscape;margin:0;}';
+
+  document.head.appendChild(pageStyle);
+
+  document.body.dataset.print=mode;
+
+  const oldTitle=document.title;
+
+  if(title) document.title=title;
+
+  const done=()=>{
+
+    delete document.body.dataset.print;
+    document.title=oldTitle;
+    pageStyle.remove();
+    root.remove();
+
+    window.removeEventListener('afterprint',done);
   };
 
-  TEACHER_CRITERIA.forEach(c=>{
-    payload[c.key]=Number(
-      f.get(c.key)||0
-    );
+  window.addEventListener('afterprint',done);
+
+  window.print();
+}
+
+/* ---------- 3) التقرير الأسبوعي ---------- */
+
+const EV_DEFAULT_REPORT = {
+  title:'التقرير الأسبوعي لتقييم المعلمين والمعلّمات',
+  subtitle:'برنامج «تعلّم العربية» — السقيفة',
+  showLogoProgram:true, logoProgram:'',
+  showLogoOrg:true,     logoOrg:'',
+
+  showMeta:true,
+  courseLabel:'الدورة',
+  weekLabel:'الأسبوع',
+  dateLabel:'تاريخ التقرير',
+  dateText:'',
+
+  showIntro:true,
+  toName:'سعادة المدير التنفيذي / د. بدر هديبان الحربي — حفظه الله',
+  intro:'السلام عليكم ورحمة الله وبركاته، وبعد:\nنرفع لسعادتكم التقرير الأسبوعي لتقييم أداء المعلمين والمعلّمات في برنامج «تعلّم العربية» عن الأسبوع ({الأسبوع})، وفيما يلي بيان التقييمات:',
+
+  colIndex:'م', colName:'الاسم', colGender:'الفئة',
+  colTotal:'المجموع', colPercent:'النسبة', colRank:'الترتيب',
+  genderM:'معلّم', genderF:'معلّمة',
+  showGender:true, showPercent:true, showRank:true,
+
+  showSummary:true,
+  stat1:'عدد المعلمين والمعلّمات',
+  stat2:'متوسط مجموع الأسبوع',
+  stat3:'متميّز الأسبوع (معلّم)',
+  stat4:'متميّزة الأسبوع (معلّمة)',
+
+  notesTitle:'ملاحظات وتوصيات',
+
+  showPrep:true,
+  prepLabel:'إعداد التقرير',
+  prepName:'',
+  showApprove:true,
+  approveLabel:'الاعتماد — المدير التنفيذي',
+  approveName:'د. بدر هديبان الحربي'
+};
+
+function evReport(){
+
+  return Object.assign(
+    {},
+    EV_DEFAULT_REPORT,
+    DATA.evalSettings.report||{}
+  );
+}
+
+function evReportRanking(week){
+
+  const ranked=
+    DATA.teachers
+      .map(t=>({...t,total:evWeekTotal(t.id,week)}))
+      .sort((a,b)=>b.total-a.total);
+
+  let lastTotal=null,lastRank=0;
+
+  ranked.forEach((t,i)=>{
+
+    if(t.total!==lastTotal){
+      lastRank=i+1;
+      lastTotal=t.total;
+    }
+
+    t.rank=lastRank;
   });
+
+  return ranked;
+}
+
+function evReportHTML(week){
+
+  const r=evReport();
+  const crit=evCriteria();
+  const ranked=evReportRanking(week);
+  const maxWeek=evMaxPerWeek();
+  const hasData=ranked.some(t=>t.total>0);
+  const {hijri,greg}=evTodayStrings();
+  const course=evCourseName();
+  const weeks=evCourseWeeks();
+  const vars={week,weeks,course};
+  const notes=
+    String((DATA.evalSettings.reportNotes||{})[week]||'').trim();
+
+  const bestOf=g=>{
+
+    const list=ranked.filter(t=>t.gender===g && t.total>0);
+
+    if(!list.length) return null;
+
+    const top=list[0].total;
+
+    return {
+      total:top,
+      names:list.filter(t=>t.total===top).map(t=>t.name)
+    };
+  };
+
+  const bm=bestOf('m');
+  const bf=bestOf('f');
+
+  const isTop=t=>
+    t.total>0 && (
+      (t.gender==='m' && bm && t.total===bm.total) ||
+      (t.gender==='f' && bf && t.total===bf.total)
+    );
+
+  const avg=
+    ranked.length
+      ? Math.round(
+          ranked.reduce((s,t)=>s+t.total,0)/ranked.length*10
+        )/10
+      : 0;
+
+  const cell=(t,cr)=>
+    Number(evScoreRow(t.id,week)?.scores?.[cr.key])||0;
+
+  const rows=ranked.map((t,i)=>`
+
+    <tr class="${isTop(t)?'is-top':''}">
+
+      <td>${i+1}</td>
+
+      <td class="nm">${esc(t.name)}</td>
+
+      ${
+        r.showGender
+        ? `<td>${esc(
+            t.gender==='f'?r.genderF:
+            t.gender==='m'?r.genderM:'-'
+          )}</td>`
+        : ''
+      }
+
+      ${crit.map(cr=>`<td>${cell(t,cr)}</td>`).join('')}
+
+      <td class="tot">${t.total}</td>
+
+      ${
+        r.showPercent
+        ? `<td>${maxWeek?Math.round(t.total/maxWeek*100):0}%</td>`
+        : ''
+      }
+
+      ${r.showRank?`<td>${t.rank}</td>`:''}
+
+    </tr>
+
+  `).join('');
+
+  const logoP=
+    r.showLogoProgram
+      ? `<img src="${esc(r.logoProgram||EV_LOGO_PROGRAM)}" alt="" class="report__logo report__logo--program">`
+      : '<span class="report__logo-spacer--program"></span>';
+
+  const logoO=
+    r.showLogoOrg
+      ? `<img src="${esc(r.logoOrg||EV_LOGO_ORG)}" alt="" class="report__logo report__logo--org">`
+      : '<span class="report__logo-spacer--org"></span>';
+
+  const sig=(show,label,name)=>
+    show
+      ? `<div class="report__sig"><span>${esc(label)}</span><div class="line"></div><b>${name?esc(name):'&nbsp;'}</b></div>`
+      : '<div class="report__sig" style="visibility:hidden"></div>';
+
+  return `
+
+  <div class="report" id="report">
+
+    <div class="report__head">
+      ${logoP}
+      <div class="report__titlebox">
+        <h1 class="report__title">${evFmt(r.title,vars)}</h1>
+        <div class="report__sub">${evFmt(r.subtitle,vars)}</div>
+      </div>
+      ${logoO}
+    </div>
+
+    ${
+      r.showMeta
+      ? `
+        <div class="report__meta">
+          <div>${esc(r.courseLabel)}: <b>${esc(course)}</b></div>
+          <div>${esc(r.weekLabel)}: <b>${week}</b> من ${weeks}</div>
+          <div>${esc(r.dateLabel)}: ${
+            r.dateText
+            ? `<b>${esc(r.dateText)}</b>`
+            : `<b>${hijri} هـ</b> — الموافق ${greg} م`
+          }</div>
+        </div>
+      `
+      : ''
+    }
+
+    ${
+      r.showIntro
+      ? `
+        <div class="report__to">
+          <b>${evFmt(r.toName,vars)}</b><br>
+          ${evFmt(r.intro,vars)}
+        </div>
+      `
+      : ''
+    }
+
+    ${
+      hasData
+      ? ''
+      : '<p class="report__note">لم تُسجَّل درجات لهذا الأسبوع بعد — تظهر القيم أصفارًا إلى حين إدخال التقييمات.</p>'
+    }
+
+    <div class="report__tablewrap">
+
+      <table class="report__table">
+
+        <thead>
+          <tr>
+            <th>${esc(r.colIndex)}</th>
+            <th>${esc(r.colName)}</th>
+            ${r.showGender?`<th>${esc(r.colGender)}</th>`:''}
+            ${crit.map(cr=>`<th>${esc(cr.label)}<small>من ${cr.max}</small></th>`).join('')}
+            <th>${esc(r.colTotal)}<small>من ${maxWeek}</small></th>
+            ${r.showPercent?`<th>${esc(r.colPercent)}</th>`:''}
+            ${r.showRank?`<th>${esc(r.colRank)}</th>`:''}
+          </tr>
+        </thead>
+
+        <tbody>${rows}</tbody>
+
+      </table>
+
+    </div>
+
+    ${
+      r.showSummary
+      ? `
+        <div class="report__summary">
+          <div class="report__stat"><span>${esc(r.stat1)}</span><b>${ranked.length}</b></div>
+          <div class="report__stat"><span>${esc(r.stat2)}</span><b>${avg} من ${maxWeek}</b></div>
+          <div class="report__stat"><span>${esc(r.stat3)}</span><b>${bm?esc(bm.names.join('، '))+' — '+bm.total:'—'}</b></div>
+          <div class="report__stat"><span>${esc(r.stat4)}</span><b>${bf?esc(bf.names.join('، '))+' — '+bf.total:'—'}</b></div>
+        </div>
+      `
+      : ''
+    }
+
+    ${
+      notes
+      ? `
+        <div class="report__notes">
+          <h4>${esc(r.notesTitle)}</h4>
+          <p>${esc(notes).replace(/\n/g,'<br>')}</p>
+        </div>
+      `
+      : ''
+    }
+
+    <div class="report__foot">
+      ${sig(r.showPrep,r.prepLabel,r.prepName)}
+      ${sig(r.showApprove,r.approveLabel,r.approveName)}
+    </div>
+
+  </div>
+  `;
+}
+
+const EV_REPORT_SCHEMA = [
+  { title:'الترويسة', open:true, fields:[
+    {k:'title',label:'عنوان التقرير'},
+    {k:'subtitle',label:'العنوان الفرعي'},
+    {k:'showLogoProgram',label:'إظهار شعار «تعلّم العربية»',type:'check'},
+    {k:'logoProgram',label:'شعار «تعلّم العربية»',type:'logo',fallback:EV_LOGO_PROGRAM},
+    {k:'showLogoOrg',label:'إظهار شعار «السقيفة»',type:'check'},
+    {k:'logoOrg',label:'شعار «السقيفة»',type:'logo',fallback:EV_LOGO_ORG}
+  ]},
+  { title:'بيانات التقرير (الدورة / الأسبوع / التاريخ)', fields:[
+    {k:'showMeta',label:'إظهار هذا الشريط',type:'check'},
+    {k:'courseLabel',label:'عنوان خانة الدورة'},
+    {k:'weekLabel',label:'عنوان خانة الأسبوع'},
+    {k:'dateLabel',label:'عنوان خانة التاريخ'},
+    {k:'dateText',label:'التاريخ (اتركه فارغًا ليُكتب تاريخ اليوم تلقائيًا)'}
+  ]},
+  { title:'المقدمة والمخاطبة', fields:[
+    {k:'showIntro',label:'إظهار المقدمة',type:'check'},
+    {k:'toName',label:'سطر المخاطبة'},
+    {k:'intro',label:'نص المقدمة — يمكنك استخدام {الأسبوع} و{الدورة} و{عدد الأسابيع}',type:'area',rows:5}
+  ]},
+  { title:'عناوين أعمدة الجدول', fields:[
+    {k:'colIndex',label:'عمود الرقم'},
+    {k:'colName',label:'عمود الاسم'},
+    {k:'showGender',label:'إظهار عمود الفئة',type:'check'},
+    {k:'colGender',label:'عنوان عمود الفئة'},
+    {k:'genderM',label:'كلمة (معلّم)'},
+    {k:'genderF',label:'كلمة (معلّمة)'},
+    {k:'colTotal',label:'عمود المجموع'},
+    {k:'showPercent',label:'إظهار عمود النسبة',type:'check'},
+    {k:'colPercent',label:'عنوان عمود النسبة'},
+    {k:'showRank',label:'إظهار عمود الترتيب',type:'check'},
+    {k:'colRank',label:'عنوان عمود الترتيب'}
+  ]},
+  { title:'مربعات الملخص', fields:[
+    {k:'showSummary',label:'إظهار مربعات الملخص',type:'check'},
+    {k:'stat1',label:'المربع الأول'},
+    {k:'stat2',label:'المربع الثاني'},
+    {k:'stat3',label:'المربع الثالث'},
+    {k:'stat4',label:'المربع الرابع'}
+  ]},
+  { title:'الملاحظات والتوصيات', open:true, fields:[
+    {k:'notesTitle',label:'عنوان قسم الملاحظات'},
+    {type:'notes'}
+  ]},
+  { title:'التوقيعات', fields:[
+    {k:'showPrep',label:'إظهار خانة الإعداد',type:'check'},
+    {k:'prepLabel',label:'عنوان خانة الإعداد'},
+    {k:'prepName',label:'اسم المُعِدّ (اختياري)'},
+    {k:'showApprove',label:'إظهار خانة الاعتماد',type:'check'},
+    {k:'approveLabel',label:'عنوان خانة الاعتماد'},
+    {k:'approveName',label:'اسم المعتمِد'}
+  ]}
+];
+
+function evReportFieldHTML(f,r){
+
+  if(f.type==='notes'){
+
+    return `
+      <label class="field">
+        <span id="evRepNotesLabel">ملاحظات الأسبوع ${evReportWeek} (تظهر في التقرير إذا لم تكن فارغة)</span>
+        <textarea
+          id="evRepNotes"
+          class="input"
+          rows="5"
+          placeholder="اكتب هنا أي ملاحظات أو توصيات للمدير عن هذا الأسبوع…"
+          oninput="evRepNotes(this.value)">${esc((DATA.evalSettings.reportNotes||{})[evReportWeek]||'')}</textarea>
+      </label>
+    `;
+  }
+
+  const v=r[f.k];
+
+  if(f.type==='check'){
+
+    return `
+      <label class="check">
+        <input
+          type="checkbox"
+          ${v?'checked':''}
+          onchange="evRepInput('${f.k}',this)">
+        ${f.label}
+      </label>
+    `;
+  }
+
+  if(f.type==='area'){
+
+    return `
+      <label class="field">
+        <span>${f.label}</span>
+        <textarea
+          class="input"
+          rows="${f.rows||3}"
+          oninput="evRepInput('${f.k}',this)">${esc(v)}</textarea>
+      </label>
+    `;
+  }
+
+  if(f.type==='logo'){
+
+    return `
+      <div class="field">
+        <span>${f.label}</span>
+        <div class="logo-row">
+          <img class="logo-thumb" src="${esc(v||f.fallback)}" alt="">
+          <label class="btn ghost small" style="cursor:pointer;">
+            رفع شعار بديل
+            <input
+              type="file"
+              accept="image/*"
+              hidden
+              onchange="evRepLogo('${f.k}',this)">
+          </label>
+          <button
+            type="button"
+            class="btn danger small"
+            onclick="evRepLogoReset('${f.k}')">
+            الشعار الأصلي
+          </button>
+        </div>
+      </div>
+    `;
+  }
+
+  return `
+    <label class="field">
+      <span>${f.label}</span>
+      <input
+        type="text"
+        class="input"
+        value="${esc(v)}"
+        oninput="evRepInput('${f.k}',this)">
+    </label>
+  `;
+}
+
+function renderEvReport(){
+
+  const weeks=evCourseWeeks();
+
+  if(evReportWeek<1 || evReportWeek>weeks){
+    evReportWeek=1;
+  }
+
+  const r=evReport();
+
+  return `
+
+    <div class="toolbar">
+
+      <select
+        class="input"
+        style="width:auto;"
+        onchange="evReportWeek=Number(this.value);evRefreshReport();evSyncNotes()">
+
+        ${Array.from({length:weeks},(_,i)=>i+1).map(w=>`
+          <option
+            value="${w}"
+            ${evReportWeek===w?'selected':''}>
+            الأسبوع ${w}
+          </option>
+        `).join('')}
+
+      </select>
+
+      <button
+        class="btn ghost small"
+        onclick="evToggleReportEditor()">
+        ✏️ تعديل التقرير
+      </button>
+
+      <button
+        class="btn primary small"
+        onclick="evPrintReport()">
+        🖨️ طباعة / حفظ PDF
+      </button>
+
+      <button
+        class="btn secondary small"
+        onclick="evSendReportToCeo()">
+        📤 إرسال للرئيس التنفيذي
+      </button>
+
+    </div>
+
+    <div class="notice">
+      عدّل أي نص أو عنوان في التقرير (حتى الترويسة) من زر «تعديل التقرير»،
+      ثم احفظه PDF لإرساله للمدير.
+    </div>
+
+    ${renderEvSentList()}
+
+    <aside class="side-editor ${evReportEditorOpen?'open':''}">
+
+      <div class="side-editor__head">
+
+        <h3>✏️ تعديل التقرير</h3>
+
+        <button
+          class="week-arrow"
+          onclick="evToggleReportEditor(false)"
+          title="إغلاق">✕</button>
+
+      </div>
+
+      <div class="side-editor__fields">
+
+        ${EV_REPORT_SCHEMA.map(g=>`
+          <details class="ed-group" ${g.open?'open':''}>
+            <summary>${g.title}</summary>
+            <div class="ed-body">
+              ${g.fields.map(f=>evReportFieldHTML(f,r)).join('')}
+            </div>
+          </details>
+        `).join('')}
+
+      </div>
+
+      <div class="side-editor__foot">
+
+        <button
+          class="btn ghost small"
+          onclick="evResetReport()">
+          ↺ استرجاع الأصل
+        </button>
+
+        <button
+          class="btn primary small"
+          onclick="evToggleReportEditor(false)">
+          تم
+        </button>
+
+      </div>
+
+    </aside>
+
+    <div id="evReportWrap">
+      ${evReportHTML(evReportWeek)}
+    </div>
+  `;
+}
+
+function evRefreshReport(){
+
+  const w=$('evReportWrap');
+
+  if(w){
+    w.innerHTML=evReportHTML(evReportWeek);
+  }
+}
+
+function evSyncNotes(){
+
+  const ta=$('evRepNotes');
+
+  if(!ta) return;
+
+  ta.value=
+    (DATA.evalSettings.reportNotes||{})[evReportWeek]||'';
+
+  const lb=$('evRepNotesLabel');
+
+  if(lb){
+    lb.textContent=
+      `ملاحظات الأسبوع ${evReportWeek} (تظهر في التقرير إذا لم تكن فارغة)`;
+  }
+}
+
+function evToggleReportEditor(force){
+
+  evReportEditorOpen=
+    typeof force==='boolean'?force:!evReportEditorOpen;
+
+  renderAdmin();
+}
+
+function evRepInput(k,el){
+
+  DATA.evalSettings.report={
+    ...(DATA.evalSettings.report||{}),
+    [k]:el.type==='checkbox'?el.checked:el.value
+  };
+
+  evQueueSave('report');
+
+  evRefreshReport();
+}
+
+function evRepNotes(value){
+
+  DATA.evalSettings.reportNotes={
+    ...(DATA.evalSettings.reportNotes||{}),
+    [evReportWeek]:value
+  };
+
+  evQueueSave('report_notes');
+
+  evRefreshReport();
+}
+
+function evRepLogo(key,input){
+
+  const file=input.files[0];
+
+  if(!file) return;
+
+  const reader=new FileReader();
+
+  reader.onload=()=>{
+
+    const img=new Image();
+
+    img.onload=()=>{
+
+      const ratio=Math.min(1,400/Math.max(img.width,img.height));
+
+      const cv=document.createElement('canvas');
+
+      cv.width=Math.round(img.width*ratio);
+      cv.height=Math.round(img.height*ratio);
+
+      cv.getContext('2d').drawImage(img,0,0,cv.width,cv.height);
+
+      DATA.evalSettings.report={
+        ...(DATA.evalSettings.report||{}),
+        [key]:cv.toDataURL('image/png')
+      };
+
+      evQueueSave('report');
+
+      renderAdmin();
+
+      toast('تم تحديث الشعار');
+    };
+
+    img.src=reader.result;
+  };
+
+  reader.readAsDataURL(file);
+}
+
+function evRepLogoReset(key){
+
+  DATA.evalSettings.report={
+    ...(DATA.evalSettings.report||{}),
+    [key]:''
+  };
+
+  evQueueSave('report');
+
+  renderAdmin();
+
+  toast('تمت إعادة الشعار الأصلي');
+}
+
+function evResetReport(){
+
+  if(!confirm(
+    'استرجاع الصياغة الأصلية للتقرير؟ (ملاحظات الأسابيع تبقى كما هي)'
+  )){
+    return;
+  }
+
+  DATA.evalSettings.report=null;
+
+  evQueueSave('report');
+
+  renderAdmin();
+
+  toast('تم استرجاع الصياغة الأصلية');
+}
+
+function evPrintReport(){
+
+  evPrint(
+    'report',
+    `التقرير الأسبوعي - الأسبوع ${evReportWeek} - ${evCourseName()}`,
+    evReportHTML(evReportWeek)
+  );
+}
+
+/* ---------- 4) الشهادات ---------- */
+
+const EV_DEFAULT_CERT = {
+  title:'شهادة شكر وتقدير',
+  lead:'تتقدّم إدارة برنامج «تعلّم العربية» التابع لـ«السقيفة»\nبجزيل الشكر وخالص التقدير والامتنان إلى',
+  titleM:'الأستاذ',
+  titleF:'الأستاذة',
+  bodyM:'وذلك تقديرًا لجهوده المتميّزة وعطائه المخلص، وتفوّق أدائه التعليمي والتزامه وابتكاره خلال «{الدورة}»، حيث نال المركز الأول كأفضل معلم بمجموع {النقاط} نقطة.\nسائلين المولى عزّ وجلّ له دوام التوفيق والسداد، وأن يجعل ذلك في ميزان حسناته.',
+  bodyF:'وذلك تقديرًا لجهودها المتميّزة وعطائها المخلص، وتفوّق أدائها التعليمي والتزامها وابتكارها خلال «{الدورة}»، حيث نالت المركز الأول كأفضل معلمة بمجموع {النقاط} نقطة.\nسائلين المولى عزّ وجلّ لها دوام التوفيق والسداد، وأن يجعل ذلك في ميزان حسناتها.',
+  signTitle:'المدير التنفيذي',
+  signName:'د. بدر هديبان الحربي',
+  dateLabel:'التاريخ',
+  dateText:''
+};
+
+const EV_CERT_FIELDS = [
+  {k:'title',label:'عنوان الشهادة'},
+  {k:'signTitle',label:'المسمى الوظيفي للموقّع'},
+  {k:'signName',label:'اسم الموقّع'},
+  {k:'titleM',label:'اللقب (للمعلم)'},
+  {k:'titleF',label:'اللقب (للمعلمة)'},
+  {k:'dateLabel',label:'عنوان خانة التاريخ'},
+  {k:'dateText',label:'التاريخ (فارغ = تاريخ اليوم تلقائيًا)'},
+  {k:'lead',label:'المقدمة (قبل الاسم)',type:'area',rows:2},
+  {k:'bodyM',label:'نص التقدير — للمعلم',type:'area',rows:4},
+  {k:'bodyF',label:'نص التقدير — للمعلمة',type:'area',rows:4}
+];
+
+function evCert(){
+
+  return Object.assign(
+    {},
+    EV_DEFAULT_CERT,
+    DATA.evalSettings.cert||{}
+  );
+}
+
+function evCertHTML(teacher){
+
+  const isF=teacher.gender==='f';
+  const c=evCert();
+  const total=evCumulative(teacher.id);
+  const vars={course:evCourseName(),total};
+  const {hijri,greg}=evTodayStrings();
+
+  return `
+
+  <div class="cert" id="certificate">
+
+    <div class="cert__frame">
+
+      <div class="cert__logos">
+        <img src="${EV_LOGO_PROGRAM}" alt="" class="cert__logo cert__logo--program">
+        <img src="${EV_LOGO_ORG}" alt="" class="cert__logo cert__logo--org">
+      </div>
+
+      <div class="cert__ornament"><span></span><i></i><span></span></div>
+
+      <h1 class="cert__title">${esc(c.title)}</h1>
+
+      <p class="cert__lead">${evFmt(c.lead,vars)}</p>
+
+      <div class="cert__name">${esc(isF?c.titleF:c.titleM)} / ${esc(teacher.name)}</div>
+
+      <p class="cert__body">${evFmt(isF?c.bodyF:c.bodyM,vars)}</p>
+
+      <div class="cert__footer">
+
+        <div class="cert__date">
+          <span>${esc(c.dateLabel)}</span>
+          ${
+            c.dateText
+            ? `<b>${esc(c.dateText)}</b>`
+            : `<b>${hijri} هـ</b><small>الموافق ${greg} م</small>`
+          }
+        </div>
+
+        <div class="cert__sign">
+          <span>${esc(c.signTitle)}</span>
+          <div class="cert__sign-line"></div>
+          <b>${esc(c.signName)}</b>
+        </div>
+
+      </div>
+
+    </div>
+
+  </div>
+  `;
+}
+
+function evCertTeacher(){
+
+  return DATA.teachers.find(t=>t.id===evCertTeacherId) ||
+    evRanked().find(x=>x.t.gender==='m' && x.total>0)?.t ||
+    DATA.teachers[0];
+}
+
+function renderEvCert(){
+
+  const ranked=evRanked();
+
+  const bestM=ranked.find(x=>x.t.gender==='m' && x.total>0);
+  const bestF=ranked.find(x=>x.t.gender==='f' && x.total>0);
+
+  const teacher=evCertTeacher();
+
+  const c=evCert();
+
+  return `
+
+    <div class="toolbar">
+
+      <select
+        class="input"
+        style="width:auto;max-width:280px;"
+        onchange="evCertTeacherId=this.value;evRefreshCert()">
+
+        ${
+          bestM
+          ? `<option value="${bestM.t.id}" ${teacher.id===bestM.t.id?'selected':''}>🏆 أفضل معلم: ${esc(bestM.t.name)}</option>`
+          : ''
+        }
+
+        ${
+          bestF
+          ? `<option value="${bestF.t.id}">🏆 أفضل معلمة: ${esc(bestF.t.name)}</option>`
+          : ''
+        }
+
+        <optgroup label="بقية المعلمين والمعلمات">
+          ${DATA.teachers.map(t=>`
+            <option
+              value="${t.id}"
+              ${teacher.id===t.id && !bestM?'selected':''}>
+              ${esc(t.name)}${t.gender?` (${t.gender==='f'?'معلمة':'معلم'})`:''}
+            </option>
+          `).join('')}
+        </optgroup>
+
+      </select>
+
+      <button
+        class="btn ghost small"
+        onclick="evCertEditorOpen=!evCertEditorOpen;renderAdmin()">
+        ✏️ تعديل صياغة الشهادة
+      </button>
+
+      <button
+        class="btn primary small"
+        onclick="evPrintCert()">
+        🖨️ طباعة / حفظ PDF
+      </button>
+
+    </div>
+
+    ${
+      evCertEditorOpen
+      ? `
+        <div class="cert-editor open">
+
+          <div class="cert-editor__head">
+            <h3>✏️ تعديل صياغة الشهادة</h3>
+            <span class="muted small">التعديلات تُحفظ تلقائيًا وتظهر في الشهادة مباشرة</span>
+          </div>
+
+          <p class="cert-editor__hint">
+            تقدر تستخدم داخل النص: <code>{الدورة}</code> لاسم الدورة،
+            و<code>{النقاط}</code> لمجموع النقاط.
+          </p>
+
+          <div class="form-grid">
+
+            ${EV_CERT_FIELDS.map(f=>`
+
+              <label class="field" ${f.type==='area'?'style="grid-column:1/-1;"':''}>
+
+                <span class="modal-label">${f.label}</span>
+
+                ${
+                  f.type==='area'
+                  ? `<textarea class="input" rows="${f.rows||3}" oninput="evCertInput('${f.k}',this.value)">${esc(c[f.k])}</textarea>`
+                  : `<input class="input" value="${esc(c[f.k])}" oninput="evCertInput('${f.k}',this.value)">`
+                }
+
+              </label>
+
+            `).join('')}
+
+          </div>
+
+          <div class="toolbar" style="margin-bottom:0;">
+
+            <button
+              class="btn ghost small"
+              onclick="evResetCert()">
+              ↺ استرجاع الصياغة الأصلية
+            </button>
+
+            <button
+              class="btn primary small"
+              onclick="evCertEditorOpen=false;renderAdmin()">
+              تم
+            </button>
+
+          </div>
+
+        </div>
+      `
+      : ''
+    }
+
+    <div id="evCertWrap">
+      ${evCertHTML(teacher)}
+    </div>
+  `;
+}
+
+function evRefreshCert(){
+
+  const w=$('evCertWrap');
+
+  if(w){
+    w.innerHTML=evCertHTML(evCertTeacher());
+  }
+}
+
+function evCertInput(k,v){
+
+  DATA.evalSettings.cert={
+    ...(DATA.evalSettings.cert||{}),
+    [k]:v
+  };
+
+  evQueueSave('cert');
+
+  evRefreshCert();
+}
+
+function evResetCert(){
+
+  if(!confirm('استرجاع الصياغة الأصلية للشهادة؟')) return;
+
+  DATA.evalSettings.cert=null;
+
+  evQueueSave('cert');
+
+  renderAdmin();
+
+  toast('تم استرجاع الصياغة الأصلية');
+}
+
+function evPrintCert(){
+
+  const t=evCertTeacher();
+
+  evPrint(
+    'cert',
+    'شهادة شكر وتقدير - '+(t?t.name:''),
+    evCertHTML(t)
+  );
+}
+
+/* ---------- 5) الخصومات ---------- */
+
+function renderEvDeductions(){
+
+  if(!evDeductTeacher || !getTeacher(evDeductTeacher)){
+    evDeductTeacher=DATA.teachers[0]?.id||'';
+  }
+
+  return `
+
+    <div class="toolbar">
+
+      <select
+        class="input"
+        style="width:auto;"
+        onchange="evDeductTeacher=this.value;renderAdmin()">
+
+        ${DATA.teachers.map(t=>`
+          <option
+            value="${t.id}"
+            ${evDeductTeacher===t.id?'selected':''}>
+            ${esc(t.name)}
+          </option>
+        `).join('')}
+
+      </select>
+
+    </div>
+
+    ${renderTeacherDeductions(evDeductTeacher)}
+  `;
+}
+
+/* ---------- استيراد من Excel (المنصة القديمة) ---------- */
+
+function evImportExcel(input){
+
+  const file=input.files[0];
+
+  input.value='';
+
+  if(!file) return;
+
+  const reader=new FileReader();
+
+  reader.onload=async evt=>{
+
+    try{
+
+      const wb=XLSX.read(evt.target.result,{type:'binary'});
+
+      await evImportWorkbook(wb);
+
+    }catch(err){
+
+      console.error(err);
+
+      toast(
+        'تعذّر قراءة الملف، تأكد أنه ملف التصدير من المنصة القديمة.',
+        true
+      );
+    }
+  };
+
+  reader.readAsBinaryString(file);
+}
+
+async function evImportWorkbook(wb){
+
+  const sheet=name=>
+    wb.SheetNames.includes(name)
+      ? XLSX.utils.sheet_to_json(wb.Sheets[name])
+      : [];
+
+  const summary=sheet('ملخص المعلمين');
+
+  const weekSheets=
+    wb.SheetNames
+      .map(n=>({n,m:n.match(/^الأسبوع (\d+)$/)}))
+      .filter(x=>x.m)
+      .map(x=>({name:x.n,week:Number(x.m[1])}));
+
+  if(!summary.length && !weekSheets.length){
+
+    toast('لم أجد بيانات المعلمين في هذا الملف.',true);
+    return;
+  }
+
+  if(!confirm(
+    `استيراد ${summary.length} معلم/ة و${weekSheets.length} أسبوع؟\n`+
+    'المعلمون الموجودون بنفس الاسم يُحدَّثون ولا يتكررون، '+
+    'ودرجات الأسابيع المستوردة تحلّ محل الدرجات الحالية لنفس الأسبوع.'
+  )){
+    return;
+  }
+
+  const genderOf=v=>
+    String(v||'').includes('معلّمة')||String(v||'').includes('معلمة')?'f':'m';
+
+  const byName=()=>
+    Object.fromEntries(DATA.teachers.map(t=>[t.name,t]));
 
   try{
 
-    const existing=
-      DATA.teacherEvaluations.find(
-        x=>x.teacherId===tid && x.week===w
+    // 1) المعلمون
+    const names=[];
+
+    summary.forEach(r=>{
+
+      const name=String(r['الاسم']||'').trim();
+
+      if(name) names.push({name,gender:genderOf(r['الفئة'])});
+    });
+
+    weekSheets.forEach(ws=>{
+
+      XLSX.utils.sheet_to_json(wb.Sheets[ws.name]).forEach(r=>{
+
+        const name=String(r['الاسم']||'').trim();
+
+        if(name && !names.some(x=>x.name===name)){
+          names.push({name,gender:genderOf(r['الفئة'])});
+        }
+      });
+    });
+
+    const existing=byName();
+
+    const toInsert=
+      names
+        .filter(x=>!existing[x.name])
+        .map(x=>({
+          name:x.name,
+          phone:'',
+          gender:x.gender,
+          login_code:genTeacherCode()
+        }));
+
+    if(toInsert.length){
+
+      const inserted=await sb(
+        db().from('teachers').insert(toInsert).select()
       );
 
-    let row;
-
-    if(existing){
-
-      row=await sb(
-        db()
-        .from('teacher_evaluations')
-        .update(payload)
-        .eq('id',existing.id)
-        .select()
-        .single()
-      );
-
-    }else{
-
-      row=await sb(
-        db()
-        .from('teacher_evaluations')
-        .insert(payload)
-        .select()
-        .single()
-      );
-
+      (inserted||[]).forEach(r=>DATA.teachers.push(mapTeacher(r)));
     }
 
-    const mapped=
-      mapTeacherEval(row);
+    for(const x of names){
 
-    DATA.teacherEvaluations=
-      DATA.teacherEvaluations.filter(
-        x=>!(x.teacherId===tid && x.week===w)
+      const t=byName()[x.name];
+
+      if(t && t.gender!==x.gender){
+
+        const row=await updateRow('teachers',t.id,{gender:x.gender});
+
+        Object.assign(t,mapTeacher(row));
+      }
+    }
+
+    // 2) الدورة والمعايير
+    const info=sheet('بيانات الدورة')[0];
+
+    if(info){
+
+      DATA.evalSettings.course={
+        name:info['اسم الدورة']||evCourseName(),
+        weeks:Number(info['مدة الدورة (أسابيع)'])||evCourseWeeks()
+      };
+
+      evQueueSave('course');
+    }
+
+    const critRows=sheet('المعايير');
+
+    if(critRows.length){
+
+      DATA.evalSettings.criteria=critRows.map((r,i)=>({
+        key:String(r['المعرّف']||('c_'+i)),
+        label:String(r['المعيار']||'معيار'),
+        max:Number(r['الدرجة القصوى'])||10
+      }));
+
+      evQueueSave('criteria');
+    }
+
+    // 3) الدرجات
+    const crit=evCriteria();
+
+    const rows=[];
+
+    weekSheets.forEach(ws=>{
+
+      XLSX.utils.sheet_to_json(wb.Sheets[ws.name]).forEach(r=>{
+
+        const t=byName()[String(r['الاسم']||'').trim()];
+
+        if(!t) return;
+
+        const scores={};
+
+        crit.forEach(c=>{
+          scores[c.key]=Number(r[c.label])||0;
+        });
+
+        rows.push({
+          teacher_id:t.id,
+          week:ws.week,
+          scores,
+          updated_at:new Date().toISOString()
+        });
+      });
+    });
+
+    if(rows.length){
+
+      await sb(
+        db()
+        .from('teacher_scores')
+        .upsert(rows,{onConflict:'teacher_id,week'})
       );
+    }
 
-    DATA.teacherEvaluations.push(
-      mapped
+    await loadData();
+
+    evDraft={};
+
+    evWeek=1;
+
+    toast(
+      `تم الاستيراد: ${names.length} معلم/ة، ${weekSheets.length} أسبوع.`
     );
-
-    toast(`تم حفظ تقييم الأسبوع ${w}`);
 
     renderAdmin();
 
   }catch(x){
 
     toast(
-      friendlyError(x),
+      'تعذّر الاستيراد — تأكد من تشغيل v3_setup.sql. '+friendlyError(x),
       true
     );
   }
 }
+
 
 /* =========================================================
    الطلاب
@@ -2764,6 +4610,11 @@ function renderAdminReports(){
 
                 <td>
 
+                  <button
+                    class="btn ${r.sentToCeo?'ghost':'secondary'} small"
+                    onclick="toggleReportCeo('${r.id}')">
+                    ${r.sentToCeo?'✓ مُرسل للرئيس — إلغاء':'📤 إرسال للرئيس'}
+                  </button>
                   <button class="btn ghost small" onclick="editReport('${r.id}')">تعديل</button>
 <button
                     class="btn danger small"
@@ -3326,6 +5177,22 @@ function exportAllExcel(){
       'القاعات':rooms,
       'الطلاب':students,
       'تقييمات الطلاب':evaluations,
+      'درجات المعلمين الأسبوعية':
+        DATA.teacherScores.map(r=>{
+
+          const row={
+            'المعلم':getTeacher(r.teacherId)?.name||'',
+            'الأسبوع':r.week
+          };
+
+          evCriteria().forEach(c=>{
+            row[c.label]=Number(r.scores?.[c.key])||0;
+          });
+
+          row['الإجمالي']=evWeekTotal(r.teacherId,r.week);
+
+          return row;
+        }),
       'التقارير':reports
     },
 
@@ -3402,81 +5269,75 @@ function exportStudentsExcel(){
   );
 }
 
-function exportTeachersExcel(){
+function evExportSheets(){
 
-  const rows=[];
+  const crit=evCriteria();
 
-  DATA.teachers.forEach(t=>{
+  const sheets={};
 
-    const deductions=
-      DATA.teacherDeductions
-        .filter(
-          d=>d.teacherId===t.id
-        )
-        .reduce(
-          (sum,d)=>sum+Number(d.points||0),
-          0
-        );
+  sheets['ملخص المعلمين']=
+    DATA.teachers.map(t=>({
+      'المعرّف':t.id,
+      'الاسم':t.name,
+      'الفئة':t.gender==='f'?'معلّمة':t.gender==='m'?'معلّم':'',
+      'مجموع النقاط التراكمي':evCumulative(t.id),
+      'الخصومات':getTeacherDeductionTotal(t.id)
+    }));
 
-    const overall=getTeacherAverage(t.id);
+  const weeks=
+    Array.from(new Set(DATA.teacherScores.map(r=>r.week)))
+      .sort((a,b)=>a-b);
 
-    const teacherEvals=
-      DATA.teacherEvaluations
-        .filter(x=>x.teacherId===t.id)
-        .sort((a,b)=>a.week-b.week);
+  weeks.forEach(week=>{
 
-    if(!teacherEvals.length){
+    sheets['الأسبوع '+week]=
+      DATA.teachers.map(t=>{
 
-      const row={
-        'المعلم':t.name,
-        'الجوال':t.phone,
-        'الأسبوع':'',
-        'متوسط الأسبوع':'',
-        'المتوسط العام':'',
-        'الخصومات':deductions,
-        'الملاحظات':''
-      };
+        const row={
+          'الاسم':t.name,
+          'الفئة':t.gender==='f'?'معلّمة':t.gender==='m'?'معلّم':''
+        };
 
-      TEACHER_CRITERIA.forEach(c=>{
-        row[c.label]='';
+        crit.forEach(c=>{
+          row[c.label]=
+            Number(evScoreRow(t.id,week)?.scores?.[c.key])||0;
+        });
+
+        row['الإجمالي']=evWeekTotal(t.id,week);
+
+        return row;
       });
-
-      rows.push(row);
-
-      return;
-    }
-
-    teacherEvals.forEach(e=>{
-
-      const row={
-        'المعلم':t.name,
-        'الجوال':t.phone,
-        'الأسبوع':e.week,
-        'متوسط الأسبوع':avgScores(e.scores,TEACHER_CRITERIA),
-        'المتوسط العام':overall,
-        'الخصومات':deductions,
-        'الملاحظات':e.note||''
-      };
-
-      TEACHER_CRITERIA.forEach(c=>{
-        row[c.label]=e.scores?.[c.key]||'';
-      });
-
-      rows.push(row);
-
-    });
-
   });
 
-  downloadWorkbook(
-    {'المعلمون':rows},
-    'معلمو-منصة-تعلم-العربية.xlsx'
-  );
+  sheets['المعايير']=
+    crit.map(c=>({
+      'المعرّف':c.key,
+      'المعيار':c.label,
+      'الدرجة القصوى':c.max
+    }));
+
+  sheets['بيانات الدورة']=[{
+    'اسم الدورة':evCourseName(),
+    'مدة الدورة (أسابيع)':evCourseWeeks(),
+    'تاريخ التصدير':new Date().toLocaleDateString('ar-SA')
+  }];
+
+  return sheets;
 }
 
-/* =========================================================
-   إعدادات الإدارة
-   ========================================================= */
+function exportTeachersExcel(){
+
+  if(!DATA.teachers.length){
+
+    toast('لا توجد بيانات لتصديرها.',true);
+    return;
+  }
+
+  downloadWorkbook(
+    evExportSheets(),
+    `${evCourseName().replace(/[\\/:*?"<>|]/g,'')||'تقييم-المعلمين'}.xlsx`
+  );
+}
 
 function renderAdminSettings(){
 
@@ -4734,25 +6595,6 @@ function getStudentAverage(studentId){
   return Math.round(total/rows.length);
 }
 
-function getTeacherAverage(teacherId){
-
-  const rows=
-    DATA.teacherEvaluations.filter(
-      x=>x.teacherId===teacherId
-    );
-
-  if(!rows.length){
-    return 0;
-  }
-
-  const total=rows.reduce(
-    (sum,e)=>sum+avgScores(e.scores,TEACHER_CRITERIA),
-    0
-  );
-
-  return Math.round(total/rows.length);
-}
-
 function getTeacherDeductionTotal(teacherId){
 
   return DATA.teacherDeductions
@@ -5347,6 +7189,61 @@ async function boot(){
         }catch{}
       }
 
+      let savedCeoId=null;
+
+      try{
+        savedCeoId=
+          localStorage.getItem('saqifah:ceoSession');
+      }catch{}
+
+      if(savedCeoId){
+
+        try{
+
+          const ceoRow=await sb(
+            db()
+            .from('employees')
+            .select('*')
+            .eq('id',savedCeoId)
+            .eq('is_ceo',true)
+            .maybeSingle()
+          );
+
+          if(ceoRow){
+
+            currentUser={employeeLogin:true,ceoLogin:true,name:ceoRow.name};
+            currentAdmin=false;
+            currentEmployeeId=ceoRow.id;
+            currentIsCeo=true;
+            currentCeoCode=ceoRow.login_code;
+
+            await loadData();
+
+            ceoTab='tasks';
+
+            showScreen('screen-ceo');
+
+            renderCeo();
+
+            return;
+          }
+
+        }catch(e){
+
+          console.warn(
+            'تعذر استعادة جلسة الرئيس التنفيذي:',
+            e
+          );
+        }
+
+        currentEmployeeId=null;
+        currentIsCeo=false;
+
+        try{
+          localStorage.removeItem('saqifah:ceoSession');
+        }catch{}
+      }
+
       let savedEmployeeId=null;
 
       try{
@@ -5619,8 +7516,8 @@ function assigneeTags(t){
     if(!e) return '';
 
     return `
-      <span class="assignee-tag ${id===currentEmployeeId?'me':''}">
-        ${esc(e.name)}
+      <span class="assignee-tag ${id===currentEmployeeId?'me':''} ${e.isCeo?'ceo':''}">
+        ${e.isCeo?'👑 ':''}${esc(e.name)}
       </span>
     `;
 
@@ -5632,7 +7529,7 @@ function rerenderStaffViews(){
   if(currentAdmin){
     renderAdmin();
   }else if(currentEmployeeId){
-    renderEmployee();
+    if(currentIsCeo){ renderCeo(); }else{ renderEmployee(); }
   }
 }
 
@@ -6738,6 +8635,20 @@ function renderStaffEmployeesAdmin(){
         class="input"
         placeholder="رقم الجوال (اختياري)">
 
+      <select
+        id="employeeRole"
+        class="input">
+
+        <option value="0">موظف</option>
+
+        <option
+          value="1"
+          ${hasCeo()?'disabled':''}>
+          الرئيس التنفيذي${hasCeo()?' (موجود)':''}
+        </option>
+
+      </select>
+
       <button class="btn primary">
         إضافة موظف
       </button>
@@ -6775,7 +8686,7 @@ function renderStaffEmployeesAdmin(){
                 return `
                   <tr>
 
-                    <td>${esc(e.name)}</td>
+                    <td>${e.isCeo?'👑 ':''}${esc(e.name)}${e.isCeo?' <span class="assignee-tag ceo">الرئيس التنفيذي</span>':''}</td>
 
                     <td>${esc(e.jobTitle||'-')}</td>
 
@@ -6845,15 +8756,28 @@ function editEmployee(id){
     fields:[
       {key:'name',label:'الاسم',value:e.name,required:true},
       {key:'jobTitle',label:'المسمى الوظيفي',value:e.jobTitle},
-      {key:'phone',label:'الجوال',value:e.phone}
+      {key:'phone',label:'الجوال',value:e.phone},
+      {key:'isCeo',label:'الصفة',type:'select',value:e.isCeo?'1':'0',
+        options:[
+          {value:'0',label:'موظف'},
+          {value:'1',label:'الرئيس التنفيذي'}
+        ]}
     ],
 
     onSave:async v=>{
 
+      if(
+        v.isCeo==='1' &&
+        DATA.employees.some(x=>x.isCeo && x.id!==id)
+      ){
+        throw new Error('يوجد رئيس تنفيذي بالفعل، شخص واحد فقط.');
+      }
+
       const row=await updateRow('employees',id,{
         name:v.name,
         job_title:v.jobTitle,
-        phone:v.phone
+        phone:v.phone,
+        is_ceo:v.isCeo==='1'
       });
 
       Object.assign(e,mapEmployee(row));
@@ -6878,6 +8802,7 @@ async function addEmployee(e){
         name:$('employeeName').value.trim(),
         job_title:$('employeeJob').value.trim(),
         phone:$('employeePhone').value.trim(),
+        is_ceo:$('employeeRole')?.value==='1',
         login_code:genTeacherCode()
       })
       .select()
@@ -7372,14 +9297,21 @@ function editTeacher(id){
 
     fields:[
       {key:'name',label:'الاسم',value:t.name,required:true},
-      {key:'phone',label:'الجوال',value:t.phone}
+      {key:'phone',label:'الجوال',value:t.phone},
+      {key:'gender',label:'الفئة',type:'select',value:t.gender||'',
+        options:[
+          {value:'',label:'غير محدد'},
+          {value:'m',label:'معلّم'},
+          {value:'f',label:'معلّمة'}
+        ]}
     ],
 
     onSave:async v=>{
 
       const row=await updateRow('teachers',id,{
         name:v.name,
-        phone:v.phone
+        phone:v.phone,
+        gender:v.gender||null
       });
 
       Object.assign(t,mapTeacher(row));
@@ -7532,14 +9464,606 @@ function editReport(id){
 }
 
 /* =========================================================
+   الرئيس التنفيذي
+   ========================================================= */
+
+let currentIsCeo = false;
+let currentCeoCode = '';
+let ceoTab = 'tasks';
+let ceoViewReportId = null;
+
+function mapCeoReport(r){
+  return {
+    id:r.id,
+    kind:r.kind||'eval',
+    title:r.title||'',
+    week:r.week,
+    html:r.html||'',
+    createdAt:r.created_at||''
+  };
+}
+
+async function loadCeoInbox(){
+
+  DATA.ceoReports=[];
+
+  const isAdmin=
+    currentAdmin || currentProfile?.role==='admin';
+
+  if(!isAdmin && !currentIsCeo) return;
+
+  try{
+
+    const rows=await sb(
+      db()
+      .from('ceo_reports')
+      .select('*')
+      .order('created_at',{ascending:false})
+    );
+
+    DATA.ceoReports=(rows||[]).map(mapCeoReport);
+
+  }catch(e){
+
+    console.warn('تعذر تحميل تقارير الرئيس التنفيذي:',e);
+  }
+}
+
+/* ---------- الدخول ---------- */
+
+async function ceoCodeLogin(){
+
+  try{
+
+    const code=$('ceoCodeInput')?.value.trim();
+
+    if(!code){
+
+      toast('أدخل كود الدخول.',true);
+      return;
+    }
+
+    const row=await sb(
+      db()
+      .from('employees')
+      .select('*')
+      .eq('is_ceo',true)
+      .eq('login_code',code)
+      .maybeSingle()
+    );
+
+    if(!row){
+
+      toast('الكود غير صحيح.',true);
+      return;
+    }
+
+    currentUser={employeeLogin:true,ceoLogin:true,name:row.name};
+    currentProfile=null;
+    currentAdmin=false;
+    currentTeacherId=null;
+    currentEmployeeId=row.id;
+    currentIsCeo=true;
+    currentCeoCode=row.login_code;
+
+    try{
+      localStorage.setItem('saqifah:ceoSession',row.id);
+    }catch{}
+
+    await loadData();
+
+    ceoTab='tasks';
+    ceoViewReportId=null;
+    staffNav.employee.view='home';
+
+    showScreen('screen-ceo');
+
+    renderCeo();
+
+    toast('تم تسجيل الدخول بنجاح');
+
+  }catch(e){
+
+    toast(friendlyError(e),true);
+  }
+}
+
+/* ---------- لوحة الرئيس التنفيذي ---------- */
+
+function renderCeoSeal(){
+
+  const name=
+    getEmployee(currentEmployeeId)?.name||currentUser?.name||'';
+
+  return `
+
+    <div class="ceo-banner">
+
+      <div class="ceo-seal">
+        <div class="ceo-seal__ring">
+          <span class="ceo-seal__star">★</span>
+          <b>الرئيس التنفيذي</b>
+          <small>تعلّم العربية</small>
+        </div>
+      </div>
+
+      <div>
+        <h2>${esc(name)}</h2>
+        <p>الرئيس التنفيذي — برنامج تعلّم العربية · السقيفة</p>
+      </div>
+
+    </div>
+
+  `;
+}
+
+function renderCeoNav(){
+
+  const n=$('ceoNav');
+
+  if(!n) return;
+
+  const count=
+    DATA.ceoReports.length+
+    DATA.reports.filter(r=>r.sentToCeo).length;
+
+  n.innerHTML=
+    navButton(
+      'tasks',
+      'لوحة المهام',
+      ceoTab==='tasks',
+      "ceoTab='tasks';staffNav.employee.view='home';renderCeo()"
+    )+
+    navButton(
+      'reports',
+      'التقارير'+(count?` (${count})`:''),
+      ceoTab==='reports',
+      "ceoTab='reports';ceoViewReportId=null;renderCeo()"
+    )+
+    navButton(
+      'account',
+      'حسابي',
+      ceoTab==='account',
+      "ceoTab='account';renderCeo()"
+    );
+}
+
+function renderCeo(){
+
+  renderHeaderActions();
+  renderCeoNav();
+
+  const m=$('ceoMain');
+
+  if(!m) return;
+
+  if(ceoTab==='reports'){
+    m.innerHTML=renderCeoReports();
+  }else if(ceoTab==='account'){
+    m.innerHTML=renderCeoAccount();
+  }else{
+    m.innerHTML=renderCeoSeal()+renderStaffRoute(false);
+  }
+}
+
+/* ---------- التقارير ---------- */
+
+function renderCeoReports(){
+
+  if(ceoViewReportId){
+
+    const r=
+      DATA.ceoReports.find(x=>x.id===ceoViewReportId);
+
+    if(r){
+
+      return panel(
+        r.title,
+
+        `
+        <div class="toolbar">
+
+          <button
+            class="btn ghost small"
+            onclick="ceoViewReportId=null;renderCeo()">
+            ← رجوع للتقارير
+          </button>
+
+          <button
+            class="btn primary small"
+            onclick="ceoPrintReport('${r.id}')">
+            🖨️ طباعة / حفظ PDF
+          </button>
+
+        </div>
+
+        <div class="ceo-report-view">
+          ${r.html}
+        </div>
+        `
+      );
+    }
+
+    ceoViewReportId=null;
+  }
+
+  const teacherReports=
+    DATA.reports
+      .filter(r=>r.sentToCeo)
+      .sort((a,b)=>
+        String(b.date||'').localeCompare(String(a.date||''))
+      );
+
+  return panel(
+    'التقارير',
+
+    `
+    <h3 style="color:var(--purple);margin-bottom:12px;">
+      التقارير الأسبوعية لتقييم المعلمين والمعلمات
+    </h3>
+
+    ${
+      DATA.ceoReports.length
+      ? `
+        <div class="report-list" style="margin-bottom:26px;">
+
+          ${DATA.ceoReports.map(r=>`
+
+            <div class="report-card">
+
+              <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap;">
+
+                <div>
+                  <h4>${esc(r.title)}</h4>
+                  <small>
+                    أُرسل في ${r.createdAt?fmtDate(r.createdAt):'-'}
+                  </small>
+                </div>
+
+                <div style="display:flex;gap:6px;flex-wrap:wrap;">
+
+                  <button
+                    class="btn primary small"
+                    onclick="ceoViewReportId='${r.id}';renderCeo()">
+                    عرض التقرير
+                  </button>
+
+                  <button
+                    class="btn ghost small"
+                    onclick="ceoPrintReport('${r.id}')">
+                    🖨️ طباعة / PDF
+                  </button>
+
+                </div>
+
+              </div>
+
+            </div>
+
+          `).join('')}
+
+        </div>
+      `
+      : '<div class="empty">لم يصلك أي تقرير أسبوعي بعد.</div>'
+    }
+
+    <h3 style="color:var(--purple);margin-bottom:12px;">
+      تقارير المعلمين والمعلمات الأسبوعية
+    </h3>
+
+    ${
+      teacherReports.length
+      ? `
+        <div class="report-list">
+
+          ${teacherReports.map(r=>`
+
+            <div class="report-card">
+
+              <h4>
+                ${esc(getTeacher(r.teacherId)?.name||'معلم')}
+                — ${esc(getRoom(r.roomId)?.name||'')}
+              </h4>
+
+              <small>
+                الأسبوع ${esc(r.week)}
+                ${r.date?' · '+fmtDate(r.date):''}
+              </small>
+
+              <p style="white-space:pre-wrap;">${esc(r.content)}</p>
+
+              ${
+                r.images?.length
+                ? `
+                  <div class="report-images">
+                    ${r.images.map(img=>`
+                      <a href="${img}" target="_blank" rel="noopener">
+                        <img src="${img}" alt="صورة التقرير" loading="lazy">
+                      </a>
+                    `).join('')}
+                  </div>
+                `
+                : ''
+              }
+
+              ${
+                r.driveLink
+                ? `
+                  <a
+                    class="link"
+                    href="${esc(r.driveLink)}"
+                    target="_blank"
+                    rel="noopener">
+                    فتح ملفات التقرير
+                  </a>
+                `
+                : ''
+              }
+
+            </div>
+
+          `).join('')}
+
+        </div>
+      `
+      : '<div class="empty">لا توجد تقارير معلمين مرسلة إليك بعد.</div>'
+    }
+    `
+  );
+}
+
+function ceoPrintReport(id){
+
+  const r=DATA.ceoReports.find(x=>x.id===id);
+
+  if(!r) return;
+
+  evPrint('report',r.title,r.html);
+}
+
+/* ---------- حسابي وتغيير الكود ---------- */
+
+function renderCeoAccount(){
+
+  return panel(
+    'حسابي',
+
+    `
+    ${renderCeoSeal()}
+
+    <div class="card-inner">
+
+      <h3>كود الدخول</h3>
+
+      <p style="margin-bottom:12px;font-size:14px;">
+        كودك الحالي:
+        <b class="ltr" style="letter-spacing:2px;">${esc(currentCeoCode||'-')}</b>
+      </p>
+
+      <button
+        class="btn primary"
+        onclick="openCeoCodeModal()">
+        تغيير الكود
+      </button>
+
+    </div>
+    `
+  );
+}
+
+function openCeoCodeModal(){
+
+  openEditModal({
+
+    title:'تغيير كود الدخول',
+
+    fields:[
+      {key:'newCode',label:'الكود الجديد (4 أحرف أو أرقام على الأقل)',required:true},
+      {key:'confirm',label:'أعد كتابة الكود الجديد',required:true}
+    ],
+
+    onSave:async v=>{
+
+      const code=v.newCode.trim();
+
+      if(code.length<4){
+        throw new Error('الكود لازم يكون 4 أحرف أو أرقام على الأقل.');
+      }
+
+      if(code!==v.confirm.trim()){
+        throw new Error('الكودان غير متطابقين.');
+      }
+
+      const ok=await sb(
+        db().rpc('ceo_change_code',{
+          old_code:currentCeoCode,
+          new_code:code
+        })
+      );
+
+      if(!ok){
+        throw new Error('تعذّر تغيير الكود، حاول مرة أخرى.');
+      }
+
+      currentCeoCode=code;
+
+      toast('تم تغيير الكود — استخدم الكود الجديد في دخولك القادم.');
+
+      renderCeo();
+    }
+  });
+}
+
+/* ---------- خيارات الإدارة: إرسال التقارير ---------- */
+
+function hasCeo(){
+
+  return DATA.employees.some(e=>e.isCeo);
+}
+
+function renderEvSentList(){
+
+  const list=DATA.ceoReports.filter(r=>r.kind==='eval');
+
+  if(!list.length) return '';
+
+  return `
+    <div class="notice">
+
+      المرسل للرئيس التنفيذي:
+
+      ${list.map(r=>`
+        <span class="assignee-tag">
+          ${esc(r.title)}
+          <a
+            href="javascript:void(0)"
+            style="margin-inline-start:6px;color:var(--red);font-weight:800;"
+            onclick="evDeleteCeoReport('${r.id}')"
+            title="إلغاء الإرسال">✕</a>
+        </span>
+      `).join('')}
+
+    </div>
+  `;
+}
+
+async function evSendReportToCeo(){
+
+  if(!hasCeo()){
+
+    toast(
+      'أضف الرئيس التنفيذي أولاً من "الموظفون والمهام ← إدارة الموظفين".',
+      true
+    );
+
+    return;
+  }
+
+  const week=evReportWeek;
+
+  const title=
+    `التقرير الأسبوعي — الأسبوع ${week} — ${evCourseName()}`;
+
+  const existing=
+    DATA.ceoReports.find(r=>r.kind==='eval' && r.week===week);
+
+  if(
+    existing &&
+    !confirm('يوجد تقرير مرسل لهذا الأسبوع، هل تريد استبداله بالنسخة الحالية؟')
+  ){
+    return;
+  }
+
+  try{
+
+    const payload={
+      kind:'eval',
+      title,
+      week,
+      html:evReportHTML(week),
+      created_at:new Date().toISOString()
+    };
+
+    const row=
+      existing
+        ? await updateRow('ceo_reports',existing.id,payload)
+        : await sb(
+            db().from('ceo_reports').insert(payload).select().single()
+          );
+
+    DATA.ceoReports=
+      DATA.ceoReports.filter(r=>r.id!==row.id);
+
+    DATA.ceoReports.unshift(mapCeoReport(row));
+
+    toast('تم إرسال التقرير إلى الرئيس التنفيذي');
+
+    renderAdmin();
+
+  }catch(x){
+
+    toast(
+      'تعذر الإرسال — تأكد من تشغيل v4_setup.sql. '+friendlyError(x),
+      true
+    );
+  }
+}
+
+async function evDeleteCeoReport(id){
+
+  if(!confirm('إلغاء إرسال هذا التقرير؟ سيختفي من لوحة الرئيس التنفيذي.')) return;
+
+  try{
+
+    await sb(
+      db().from('ceo_reports').delete().eq('id',id)
+    );
+
+    DATA.ceoReports=
+      DATA.ceoReports.filter(r=>r.id!==id);
+
+    toast('تم إلغاء الإرسال');
+
+    renderAdmin();
+
+  }catch(x){
+
+    toast(friendlyError(x),true);
+  }
+}
+
+async function toggleReportCeo(id){
+
+  const r=DATA.reports.find(x=>x.id===id);
+
+  if(!r) return;
+
+  if(!r.sentToCeo && !hasCeo()){
+
+    toast(
+      'أضف الرئيس التنفيذي أولاً من "الموظفون والمهام ← إدارة الموظفين".',
+      true
+    );
+
+    return;
+  }
+
+  try{
+
+    const row=await updateRow('reports',id,{
+      sent_to_ceo:!r.sentToCeo
+    });
+
+    Object.assign(r,mapReport(row));
+
+    toast(
+      r.sentToCeo
+        ? 'تم إرسال التقرير إلى الرئيس التنفيذي'
+        : 'تم إلغاء الإرسال'
+    );
+
+    renderAdmin();
+
+  }catch(x){
+
+    toast(
+      'تعذر الحفظ — تأكد من تشغيل v4_setup.sql. '+friendlyError(x),
+      true
+    );
+  }
+}
+
+/* =========================================================
    حذف البيانات القديمة (الإعدادات)
    ========================================================= */
 
 const WIPE_ITEMS = [
   {key:'evaluations',  label:'تقييمات الطلاب',        table:'evaluations',        col:'id',      needs:[],
    count:()=>DATA.evaluations.length},
-  {key:'teacherEvals', label:'تقييمات المعلمين',      table:'teacher_evaluations',col:'id',      needs:[],
+  {key:'teacherEvals', label:'تقييمات المعلمين (القديمة)',table:'teacher_evaluations',col:'id',  needs:[],
    count:()=>DATA.teacherEvaluations.length},
+  {key:'teacherScores',label:'درجات المعلمين الأسبوعية',table:'teacher_scores',    col:'id',      needs:[],
+   count:()=>DATA.teacherScores.length},
   {key:'deductions',   label:'خصومات المعلمين',       table:'teacher_deductions', col:'id',      needs:[],
    count:()=>DATA.teacherDeductions.length},
   {key:'reports',      label:'التقارير الأسبوعية',    table:'reports',            col:'id',      needs:[],
@@ -7552,10 +10076,12 @@ const WIPE_ITEMS = [
    count:()=>DATA.students.length},
   {key:'rooms',        label:'القاعات والدورات',      table:'rooms',              col:'id',      needs:['students','reports'],
    count:()=>DATA.rooms.length},
-  {key:'teachers',     label:'المعلمون',              table:'teachers',           col:'id',      needs:['rooms','teacherEvals','deductions','reports','evaluations'],
+  {key:'teachers',     label:'المعلمون',              table:'teachers',           col:'id',      needs:['rooms','teacherEvals','teacherScores','deductions','reports','evaluations'],
    count:()=>DATA.teachers.length},
   {key:'tasks',        label:'المهام',                table:'tasks',              col:'id',      needs:[],
    count:()=>DATA.tasks.length},
+  {key:'ceoReports',   label:'التقارير المرسلة للرئيس التنفيذي',table:'ceo_reports',col:'id',    needs:[],
+   count:()=>DATA.ceoReports.length},
   {key:'groups',       label:'مجموعات المهام',        table:'task_groups',        col:'id',      needs:['tasks'],
    count:()=>DATA.groups.length},
   {key:'employees',    label:'الموظفون',              table:'employees',          col:'id',      needs:['tasks'],
@@ -7791,7 +10317,7 @@ document.addEventListener(
         }else if(currentTeacherId){
           renderTeacher();
         }else if(currentEmployeeId){
-          renderEmployee();
+          if(currentIsCeo){ renderCeo(); }else{ renderEmployee(); }
         }
 
       }catch(e){
