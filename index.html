@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>منصة تعلم العربية </title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@300;400;500;700;800;900&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@300;400;500;700;800;900&family=Cairo:wght@500;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 
 <!-- ربط Supabase -->
@@ -83,6 +83,16 @@
         <button class="btn ghost block" onclick="employeeCodeLogin()">دخول الموظف/ـة</button>
         <div class="hint">استخدم اسمك وكود الدخول الذي أعطتك إياه الإدارة.</div>
       </div>
+
+      <hr>
+
+      <div class="login-section">
+        <label>الرئيس التنفيذي</label>
+        <div class="field">
+          <input type="password" id="ceoCodeInput" placeholder="كود الدخول" autocomplete="off">
+        </div>
+        <button class="btn primary block" onclick="ceoCodeLogin()">دخول الرئيس التنفيذي</button>
+      </div>
     </div>
   </div>
 </section>
@@ -108,6 +118,14 @@
   <div class="layout">
     <nav class="sidebar" id="employeeNav"></nav>
     <div class="main-panel" id="employeeMain"></div>
+  </div>
+</section>
+
+<!-- لوحة الرئيس التنفيذي -->
+<section id="screen-ceo" class="screen">
+  <div class="layout">
+    <nav class="sidebar" id="ceoNav"></nav>
+    <div class="main-panel" id="ceoMain"></div>
   </div>
 </section>
 
