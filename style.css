@@ -835,3 +835,23 @@ tr.mine-row td{background:#fefaf1;}
 @media (max-width:480px){
   .brand-text{display:none;}
 }
+
+/* ---------- دائرة الرئيس التنفيذي (بدل التاج) ---------- */
+.ceo-dot{display:inline-block;width:.72em;height:.72em;border-radius:50%;background:radial-gradient(circle at 35% 30%,#ffe08a,#f6b132 60%,#d99414);margin-inline-end:.4em;vertical-align:middle;box-shadow:0 0 0 1px rgba(0,0,0,.10);}
+.assignee-tag.ceo .ceo-dot{box-shadow:0 0 0 1px rgba(255,255,255,.35);}
+
+/* ---------- تحسينات إضافية ---------- */
+.section-head{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;}
+.duration-field{display:flex;gap:8px;}
+.duration-field input{flex:1;min-width:0;}
+.duration-field select{width:110px;flex:none;}
+.task-section{margin-top:18px;}
+.task-section__title{font-family:'Cairo',sans-serif;font-size:1rem;font-weight:800;color:var(--purple);margin:0 0 8px;display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap;}
+.task-section__title small{font-family:'Tajawal',sans-serif;font-weight:700;color:var(--muted);font-size:.8rem;}
+.report__table td.st-done{color:#1f9d55;font-weight:800;}
+.report__table td.st-doing{color:#d99414;font-weight:800;}
+.report__table td.st-todo{color:#c0392b;font-weight:800;}
+@media print{
+  body[data-print="report"] .task-section{break-inside:auto;}
+  body[data-print="report"] .task-section__title{break-after:avoid;}
+}

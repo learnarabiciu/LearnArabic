@@ -62,7 +62,7 @@ let selectedTeacherRoomId = null;
 let selectedTeacherWeek = 1;
 let adminTeacherEvalWeek = 1;
 let adminTab = 'rooms';
-let teacherTab = 'evaluate';
+let teacherTab = 'reports';
 
 function emptyData(){
   return {
@@ -81,7 +81,8 @@ function emptyData(){
     groups:[],
     teacherScores:[],
     evalSettings:evEmptySettings(),
-    ceoReports:[]
+    ceoReports:[],
+    taskTemplates:[]
   };
 }
 
@@ -338,7 +339,13 @@ function mapRoom(r){
     name:r.name,
     course:r.course||'',
     teacherId:r.teacher_id||null,
-    durationWeeks:r.duration_weeks||null
+    groupName:r.group_name||'',
+    durationDays:
+      r.duration_days ||
+      (r.duration_weeks?r.duration_weeks*7:null),
+    durationWeeks:
+      r.duration_weeks ||
+      (r.duration_days?Math.ceil(r.duration_days/7):null)
   };
 }
 
@@ -524,6 +531,7 @@ async function loadStaffData(){
   DATA.employees=[];
   DATA.tasks=[];
   DATA.groups=[];
+  DATA.taskTemplates=[];
 
   const isAdmin=
     currentAdmin || currentProfile?.role==='admin';
@@ -542,11 +550,22 @@ async function loadStaffData(){
     const groupQ=db().from('task_groups').select('*')
       .order('created_at',{ascending:true});
 
-    const [emps,tasks,groups]=await Promise.all([
+    const tplQ=
+      isAdmin
+        ? sb(
+            db().from('task_templates').select('*')
+              .order('created_at',{ascending:true})
+          ).catch(()=>[])
+        : Promise.resolve([]);
+
+    const [emps,tasks,groups,tpls]=await Promise.all([
       sb(empQ),
       sb(taskQ),
-      sb(groupQ).catch(()=>[])
+      sb(groupQ).catch(()=>[]),
+      tplQ
     ]);
+
+    DATA.taskTemplates=(tpls||[]).map(mapTemplate);
 
     DATA.employees=(emps||[]).map(mapEmployee);
     DATA.tasks=(tasks||[]).map(mapTask);
@@ -768,7 +787,7 @@ async function teacherCodeLogin(){
     selectedTeacherRoomId=
       teacherRooms()[0]?.id||null;
 
-    teacherTab='evaluate';
+    teacherTab='reports';
 
     showScreen('screen-teacher');
 
@@ -936,7 +955,7 @@ function renderHeaderActions(){
   h.innerHTML=currentUser
     ? `
       <span class="user-chip">
-        ${currentUser?.ceoLogin?'👑 ':''}${esc(
+        ${currentUser?.ceoLogin?'<span class="ceo-dot"></span>':''}${esc(
           currentProfile?.full_name||
           currentUser.name||
           currentUser.email
@@ -1000,13 +1019,6 @@ function renderAdminNav(){
     ),
 
     navButton(
-      'evals',
-      'تقييم الطلاب',
-      adminTab==='evals',
-      "adminTab='evals';renderAdmin()"
-    ),
-
-    navButton(
       'reports',
       'التقارير الأسبوعية',
       adminTab==='reports',
@@ -1025,13 +1037,6 @@ function renderAdminNav(){
       'الموظفون والمهام',
       adminTab==='staff',
       "adminTab='staff';staffNav.admin.view='home';renderAdmin()"
-    ),
-
-    navButton(
-      'champion',
-      'الطلاب المتميزون',
-      adminTab==='champion',
-      "adminTab='champion';renderAdmin()"
     ),
 
     navButton(
@@ -1058,13 +1063,6 @@ function renderTeacherNav(){
   if(!n) return;
 
   n.innerHTML=[
-
-    navButton(
-      'evaluate',
-      'تقييم الطلاب',
-      teacherTab==='evaluate',
-      "teacherTab='evaluate';renderTeacher()"
-    ),
 
     navButton(
       'reports',
@@ -1113,15 +1111,11 @@ function renderAdmin(){
 
     students:renderAdminStudents,
 
-    evals:renderAdminEvals,
-
     reports:renderAdminReports,
 
     announce:renderAdminAnnouncements,
 
     staff:renderAdminStaff,
-
-    champion:renderAdminChampion,
 
     export:renderAdminExport,
 
@@ -1132,16 +1126,6 @@ function renderAdmin(){
   m.innerHTML=views[adminTab]();
 }
 
-function panel(title,body){
-
-  return `
-    <div class="section-head">
-      <h2>${title}</h2>
-    </div>
-
-    ${body}
-  `;
-}
 
 /* =========================================================
    القاعات والدورات
@@ -1168,12 +1152,35 @@ function renderAdminRooms(){
         class="input"
         placeholder="اسم الدورة / المستوى">
 
+      <datalist id="groupNameList">
+        ${DATA.groups.map(g=>`<option value="${esc(g.name)}">`).join('')}
+      </datalist>
+
       <input
-        id="roomDuration"
-        type="number"
-        min="1"
+        id="roomGroupName"
         class="input"
-        placeholder="مدة الدورة (عدد الأسابيع)">
+        list="groupNameList"
+        placeholder="اسم المجموعة (مثال: معهد ابن حجر)">
+
+      <div class="duration-field">
+
+        <input
+          id="roomDuration"
+          type="number"
+          min="1"
+          class="input"
+          placeholder="مدة الدورة">
+
+        <select
+          id="roomDurationUnit"
+          class="input">
+
+          <option value="days">أيام</option>
+          <option value="weeks">أسابيع</option>
+
+        </select>
+
+      </div>
 
       <select
         id="roomTeacher"
@@ -1209,6 +1216,7 @@ function renderAdminRooms(){
           <tr>
             <th>القاعة</th>
             <th>الدورة</th>
+            <th>المجموعة</th>
             <th>المدة</th>
             <th>المعلم</th>
             <th>الطلاب</th>
@@ -1232,11 +1240,11 @@ function renderAdminRooms(){
               </td>
 
               <td>
-                ${
-                  r.durationWeeks
-                  ? `${r.durationWeeks} أسبوع`
-                  : '-'
-                }
+                ${esc(r.groupName||'-')}
+              </td>
+
+              <td>
+                ${fmtDuration(r.durationDays)}
               </td>
 
               <td>
@@ -1297,9 +1305,26 @@ async function addRoom(e){
         course:
           $('roomCourse').value.trim(),
 
+        group_name:
+          $('roomGroupName').value.trim(),
+
+        duration_days:
+          toDays(
+            $('roomDuration').value,
+            $('roomDurationUnit').value
+          ),
+
         duration_weeks:
-          $('roomDuration').value
-            ? Number($('roomDuration').value)
+          toDays(
+            $('roomDuration').value,
+            $('roomDurationUnit').value
+          )
+            ? Math.ceil(
+                toDays(
+                  $('roomDuration').value,
+                  $('roomDurationUnit').value
+                )/7
+              )
             : null,
 
         teacher_id:
@@ -3789,6 +3814,10 @@ function renderEvDeductions(){
 
     </div>
 
+    <div class="toolbar">
+      <button class="btn ghost small" onclick="exportDeductionsExcel()">⭳ تصدير كل الخصومات Excel</button>
+    </div>
+
     ${renderTeacherDeductions(evDeductTeacher)}
   `;
 }
@@ -4116,7 +4145,6 @@ function renderAdminStudents(){
             <th>الطالب</th>
             <th>الجوال</th>
             <th>القاعة</th>
-            <th>التقييم</th>
             <th></th>
           </tr>
 
@@ -4125,9 +4153,6 @@ function renderAdminStudents(){
         <tbody>
 
           ${DATA.students.map(s=>{
-
-            const overall=
-              getStudentAverage(s.id);
 
             return `
 
@@ -4145,14 +4170,6 @@ function renderAdminStudents(){
                   ${esc(
                     getRoom(s.roomId)?.name||'-'
                   )}
-                </td>
-
-                <td>
-                  ${
-                    overall>0
-                      ? overall+'%'
-                      : 'غير مقيم'
-                  }
                 </td>
 
                 <td>
@@ -4996,35 +5013,20 @@ function renderAdminExport(){
       </h3>
 
       <p>
-        يمكنك تصدير بيانات الطلاب والتقييمات
-        والمعلمين والقاعات والتقارير إلى ملف Excel.
+        صدّر أي قسم إلى ملف Excel. (وفي كل قسم زر "تصدير Excel" بجانب عنوانه.)
       </p>
 
       <div class="export-buttons">
 
-        <button
-          class="btn primary"
-          onclick="exportAllExcel()">
-
-          📊 تصدير جميع البيانات
-
-        </button>
-
-        <button
-          class="btn secondary"
-          onclick="exportStudentsExcel()">
-
-          👨‍🎓 تصدير الطلاب
-
-        </button>
-
-        <button
-          class="btn secondary"
-          onclick="exportTeachersExcel()">
-
-          👨‍🏫 تصدير المعلمين
-
-        </button>
+        <button class="btn primary" onclick="exportAllExcel()">📊 تصدير جميع البيانات</button>
+        <button class="btn secondary" onclick="exportRoomsExcel()">القاعات والدورات</button>
+        <button class="btn secondary" onclick="exportTeachersListExcel()">المعلمون</button>
+        <button class="btn secondary" onclick="exportTeachersExcel()">تقييم المعلمين</button>
+        <button class="btn secondary" onclick="exportStudentsExcel()">الطلاب</button>
+        <button class="btn secondary" onclick="exportReportsExcel()">التقارير الأسبوعية</button>
+        <button class="btn secondary" onclick="exportAnnouncementsExcel()">الإعلانات</button>
+        <button class="btn secondary" onclick="exportDeductionsExcel()">خصومات المعلمين</button>
+        <button class="btn secondary" onclick="exportTasksExcel('all')">المهام والموظفون</button>
 
       </div>
 
@@ -5114,36 +5116,6 @@ function exportAllExcel(){
 
     }));
 
-  const evaluations=
-    DATA.evaluations.map(e=>{
-
-      const student=
-        getStudent(e.studentId);
-
-      const room=
-        getRoom(e.roomId);
-
-      const teacher=
-        getTeacher(e.teacherId);
-
-      const row={
-        'الطالب':student?.name||'',
-        'القاعة':room?.name||'',
-        'المعلم':teacher?.name||'',
-        'المتوسط':
-          avgScores(e.scores,CRITERIA,10),
-        'الملاحظة':e.note||'',
-        'التاريخ':fmtDate(e.date)
-      };
-
-      CRITERIA.forEach(c=>{
-        row[c.label]=
-          Number(e.scores?.[c.key]||0);
-      });
-
-      return row;
-    });
-
   const reports=
     DATA.reports.map(r=>({
 
@@ -5176,7 +5148,7 @@ function exportAllExcel(){
       'المعلمون':teachers,
       'القاعات':rooms,
       'الطلاب':students,
-      'تقييمات الطلاب':evaluations,
+      'المهام':taskRows(DATA.tasks),
       'درجات المعلمين الأسبوعية':
         DATA.teacherScores.map(r=>{
 
@@ -5201,72 +5173,6 @@ function exportAllExcel(){
   );
 
   toast('تم تصدير الملف');
-}
-
-function exportStudentsExcel(){
-
-  const rows=[];
-
-  DATA.students.forEach(s=>{
-
-    const room=getRoom(s.roomId);
-    const teacher=getTeacher(room?.teacherId);
-    const overall=getStudentAverage(s.id);
-
-    const studentEvals=
-      DATA.evaluations
-        .filter(x=>x.studentId===s.id)
-        .sort((a,b)=>a.week-b.week);
-
-    if(!studentEvals.length){
-
-      const row={
-        'الطالب':s.name,
-        'الجوال':s.phone,
-        'القاعة':room?.name||'',
-        'المعلم':teacher?.name||'',
-        'الأسبوع':'',
-        'متوسط الأسبوع':'',
-        'المتوسط العام':'',
-        'الملاحظة':''
-      };
-
-      CRITERIA.forEach(c=>{
-        row[c.label]='';
-      });
-
-      rows.push(row);
-
-      return;
-    }
-
-    studentEvals.forEach(e=>{
-
-      const row={
-        'الطالب':s.name,
-        'الجوال':s.phone,
-        'القاعة':room?.name||'',
-        'المعلم':teacher?.name||'',
-        'الأسبوع':e.week,
-        'متوسط الأسبوع':avgScores(e.scores,CRITERIA,10),
-        'المتوسط العام':overall,
-        'الملاحظة':e.note||''
-      };
-
-      CRITERIA.forEach(c=>{
-        row[c.label]=e.scores?.[c.key]||'';
-      });
-
-      rows.push(row);
-
-    });
-
-  });
-
-  downloadWorkbook(
-    {'الطلاب':rows},
-    'طلاب-منصة-تعلم-العربية.xlsx'
-  );
 }
 
 function evExportSheets(){
@@ -5510,8 +5416,6 @@ function renderTeacher(){
   if(!m) return;
 
   const views={
-
-    evaluate:renderTeacherEvaluate,
 
     reports:renderTeacherReports,
 
@@ -7015,7 +6919,7 @@ function selectTeacherRoom(id){
 
   selectedTeacherWeek=1;
 
-  teacherTab='evaluate';
+  teacherTab='reports';
 
   renderTeacher();
 }
@@ -7167,7 +7071,7 @@ async function boot(){
             selectedTeacherRoomId=
               teacherRooms()[0]?.id||null;
 
-            teacherTab='evaluate';
+            teacherTab='reports';
 
             showScreen('screen-teacher');
 
@@ -7367,7 +7271,7 @@ async function boot(){
       selectedTeacherRoomId=
         teacherRooms()[0]?.id||null;
 
-      teacherTab='evaluate';
+      teacherTab='reports';
 
       showScreen(
         'screen-teacher'
@@ -7517,7 +7421,7 @@ function assigneeTags(t){
 
     return `
       <span class="assignee-tag ${id===currentEmployeeId?'me':''} ${e.isCeo?'ceo':''}">
-        ${e.isCeo?'👑 ':''}${esc(e.name)}
+        ${e.isCeo?'<span class="ceo-dot"></span>':''}${esc(e.name)}
       </span>
     `;
 
@@ -7558,6 +7462,10 @@ function renderStaffRoute(isAdmin){
 
   if(n.view==='employees' && isAdmin){
     return renderStaffEmployeesAdmin();
+  }
+
+  if(n.view==='templates' && isAdmin){
+    return renderStaffTemplates();
   }
 
   if(n.view==='general'){
@@ -7710,14 +7618,38 @@ function renderStaffHome(isAdmin){
     </div>
 
     ${
-      isAdmin
+      isAdmin || currentIsCeo
       ? `
         <div class="toolbar">
 
+          ${
+            isAdmin
+            ? `
+              <button
+                class="btn ghost"
+                onclick="openStaffView('employees')">
+                إدارة الموظفين وأكوادهم
+              </button>
+
+              <button
+                class="btn ghost"
+                onclick="openStaffView('templates')">
+                📋 قالب المهام
+              </button>
+            `
+            : ''
+          }
+
           <button
-            class="btn ghost"
-            onclick="openStaffView('employees')">
-            إدارة الموظفين وأكوادهم
+            class="btn primary"
+            onclick="printTasksReport('all')">
+            📄 تقرير شامل (PDF)
+          </button>
+
+          <button
+            class="btn secondary"
+            onclick="exportTasksExcel('all')">
+            ⭳ تصدير Excel
           </button>
 
         </div>
@@ -7883,6 +7815,42 @@ function renderStaffBoard(isAdmin){
             class="btn danger small"
             onclick="deleteGroup('${gid}')">
             حذف المجموعة
+          </button>
+        `
+        : ''
+      }
+
+      ${
+        isAdmin || currentIsCeo
+        ? `
+          <button
+            class="btn primary small"
+            onclick="printTasksReport(${isGeneral?'null':`'${gid}'`})">
+            📄 تقرير المجموعة (PDF)
+          </button>
+
+          <button
+            class="btn secondary small"
+            onclick="exportTasksExcel(${isGeneral?'null':`'${gid}'`})">
+            ⭳ Excel
+          </button>
+        `
+        : ''
+      }
+
+      ${
+        isAdmin && !isGeneral
+        ? `
+          <button
+            class="btn ghost small"
+            onclick="applyTemplateToGroup('${gid}')">
+            ＋ مهام القالب
+          </button>
+
+          <button
+            class="btn ghost small"
+            onclick="saveGroupAsTemplate('${gid}')">
+            💾 حفظ كقالب
           </button>
         `
         : ''
@@ -8328,7 +8296,7 @@ async function saveTaskDraft(){
       group_id:currentGroupId(),
       title:d.title,
       due_date:staffDraftDue||null,
-      status:'todo',
+      status:'doing',
       employee_ids:d.employeeIds
     }));
 
@@ -8375,7 +8343,7 @@ function openTaskModal(id){
       {key:'title',label:'المهمة',value:t?.title||'',required:true},
       {key:'description',label:'التفاصيل (اختياري)',type:'textarea',value:t?.description||''},
       {key:'dueDate',label:'تاريخ الاستحقاق',type:'date',value:t?.dueDate||''},
-      {key:'status',label:'الحالة',type:'select',value:t?.status||'todo',
+      {key:'status',label:'الحالة',type:'select',value:t?.status||'doing',
         options:TASK_STATUSES.map(s=>({value:s.key,label:s.label}))},
       {key:'groupId',label:'المجموعة',type:'select',value:gid||'',
         options:[
@@ -8510,7 +8478,21 @@ function openGroupModal(id){
 
     fields:[
       {key:'name',label:'اسم المجموعة',value:g?.name||'',required:true},
-      {key:'description',label:'وصف (اختياري)',type:'textarea',value:g?.description||''}
+      {key:'description',label:'وصف (اختياري)',type:'textarea',value:g?.description||''},
+      ...(
+        !g && DATA.taskTemplates.length
+          ? [{
+              key:'useTemplate',
+              label:'مهام القالب',
+              type:'checkboxes',
+              value:['1'],
+              options:[{
+                value:'1',
+                label:`إنشاء مهام القالب تلقائيًا (${DATA.taskTemplates.length} مهمة)`
+              }]
+            }]
+          : []
+      )
     ],
 
     onSave:async v=>{
@@ -8538,7 +8520,17 @@ function openGroupModal(id){
 
         DATA.groups.push(mapGroup(row));
 
-        toast('تمت إضافة المجموعة');
+        let made=0;
+
+        if((v.useTemplate||[]).includes('1')){
+          made=await createTasksFromTemplate(row.id);
+        }
+
+        toast(
+          made
+            ? `تمت إضافة المجموعة مع ${made} مهمة من القالب`
+            : 'تمت إضافة المجموعة'
+        );
       }
 
       renderAdmin();
@@ -8686,7 +8678,7 @@ function renderStaffEmployeesAdmin(){
                 return `
                   <tr>
 
-                    <td>${e.isCeo?'👑 ':''}${esc(e.name)}${e.isCeo?' <span class="assignee-tag ceo">الرئيس التنفيذي</span>':''}</td>
+                    <td>${e.isCeo?'<span class="ceo-dot"></span>':''}${esc(e.name)}${e.isCeo?' <span class="assignee-tag ceo">الرئيس التنفيذي</span>':''}</td>
 
                     <td>${esc(e.jobTitle||'-')}</td>
 
@@ -9257,7 +9249,10 @@ function editRoom(id){
     fields:[
       {key:'name',label:'اسم القاعة',value:r.name,required:true},
       {key:'course',label:'الدورة / المستوى',value:r.course},
-      {key:'duration',label:'مدة الدورة (عدد الأسابيع)',type:'number',min:1,value:r.durationWeeks||''},
+      {key:'groupName',label:'اسم المجموعة',value:r.groupName},
+      {key:'duration',label:'مدة الدورة',type:'number',min:1,value:durationFields(r).value},
+      {key:'durationUnit',label:'وحدة المدة',type:'select',value:durationFields(r).unit,
+        options:[{value:'days',label:'أيام'},{value:'weeks',label:'أسابيع'}]},
       {key:'teacherId',label:'المعلم',type:'select',value:r.teacherId||'',
         options:[
           {value:'',label:'بدون معلم'},
@@ -9270,7 +9265,12 @@ function editRoom(id){
       const row=await updateRow('rooms',id,{
         name:v.name,
         course:v.course,
-        duration_weeks:v.duration?Number(v.duration):null,
+        group_name:v.groupName,
+        duration_days:toDays(v.duration,v.durationUnit),
+        duration_weeks:
+          toDays(v.duration,v.durationUnit)
+            ? Math.ceil(toDays(v.duration,v.durationUnit)/7)
+            : null,
         teacher_id:v.teacherId||null
       });
 
@@ -10157,11 +10157,727 @@ function syncHeaderHeight(){
 })();
 
 /* =========================================================
+   تصدير Excel لكل الأقسام + تقرير المهام PDF + قالب المهام
+   ========================================================= */
+
+const PANEL_EXPORTS = {
+  'القاعات والدورات':'exportRoomsExcel()',
+  'المعلمون والمعلمات':'exportTeachersListExcel()',
+  'الطلاب':'exportStudentsExcel()',
+  'التقارير الأسبوعية':'exportReportsExcel()',
+  'الإعلانات':'exportAnnouncementsExcel()',
+  'تقييم المعلمين والمعلمات':'exportTeachersExcel()'
+};
+
+function panel(title,body){
+
+  const exp=currentAdmin?PANEL_EXPORTS[title]:null;
+
+  return `
+    <div class="section-head">
+      <h2>${title}</h2>
+      ${
+        exp
+        ? `<button class="btn ghost small" onclick="${exp}">⭳ تصدير Excel</button>`
+        : ''
+      }
+    </div>
+
+    ${body}
+  `;
+}
+
+function fmtDuration(days){
+
+  const d=Number(days)||0;
+
+  if(!d) return '-';
+
+  if(d<7) return `${d} ${d===1?'يوم':d===2?'يومان':'أيام'}`;
+
+  const w=Math.floor(d/7);
+  const r=d%7;
+
+  return r
+    ? `${w} أسبوع و${r} ${r===1?'يوم':'أيام'}`
+    : `${w} أسبوع`;
+}
+
+function durationFields(room){
+
+  const d=room?.durationDays||0;
+
+  const inWeeks=d>0 && d%7===0;
+
+  return {
+    value:d?(inWeeks?d/7:d):'',
+    unit:inWeeks?'weeks':'days'
+  };
+}
+
+function toDays(value,unit){
+
+  const n=Number(value)||0;
+
+  if(!n) return null;
+
+  return unit==='weeks'?n*7:n;
+}
+
+function xlsxOut(sheets,name){
+
+  const empty=
+    Object.values(sheets).every(r=>!r.length);
+
+  if(empty){
+
+    toast('لا توجد بيانات لتصديرها.',true);
+    return;
+  }
+
+  downloadWorkbook(
+    sheets,
+    `${name}-${new Date().toISOString().slice(0,10)}.xlsx`
+  );
+
+  toast('تم تصدير الملف');
+}
+
+function exportRoomsExcel(){
+
+  xlsxOut({
+    'القاعات':DATA.rooms.map(r=>({
+      'القاعة':r.name,
+      'الدورة':r.course,
+      'اسم المجموعة':r.groupName,
+      'المدة':fmtDuration(r.durationDays),
+      'المعلم':getTeacher(r.teacherId)?.name||'',
+      'عدد الطلاب':DATA.students.filter(s=>s.roomId===r.id).length
+    }))
+  },'القاعات-والدورات');
+}
+
+function exportTeachersListExcel(){
+
+  xlsxOut({
+    'المعلمون':DATA.teachers.map(t=>({
+      'الاسم':t.name,
+      'الفئة':t.gender==='f'?'معلّمة':t.gender==='m'?'معلّم':'',
+      'الجوال':t.phone,
+      'كود الدخول':t.loginCode,
+      'القاعات':DATA.rooms
+        .filter(r=>r.teacherId===t.id)
+        .map(r=>r.name).join('، ')
+    }))
+  },'المعلمون');
+}
+
+function exportStudentsExcel(){
+
+  xlsxOut({
+    'الطلاب':DATA.students.map(s=>{
+
+      const room=getRoom(s.roomId);
+
+      return {
+        'الطالب':s.name,
+        'الجوال':s.phone,
+        'القاعة':room?.name||'',
+        'اسم المجموعة':room?.groupName||'',
+        'المعلم':getTeacher(room?.teacherId)?.name||''
+      };
+    })
+  },'الطلاب');
+}
+
+function exportReportsExcel(){
+
+  xlsxOut({
+    'التقارير':DATA.reports.map(r=>({
+      'المعلم':getTeacher(r.teacherId)?.name||'',
+      'القاعة':getRoom(r.roomId)?.name||'',
+      'الأسبوع':r.week||'',
+      'محتوى التقرير':r.content||'',
+      'رابط Google Drive':r.driveLink||'',
+      'عدد الصور':r.images?.length||0,
+      'مُرسل للرئيس التنفيذي':r.sentToCeo?'نعم':'لا',
+      'التاريخ':r.date?fmtDate(r.date):''
+    }))
+  },'التقارير-الأسبوعية');
+}
+
+function exportAnnouncementsExcel(){
+
+  xlsxOut({
+    'الإعلانات':DATA.announcements.map(a=>({
+      'النص':a.text,
+      'التاريخ':a.date?fmtDate(a.date):''
+    }))
+  },'الإعلانات');
+}
+
+function exportDeductionsExcel(){
+
+  xlsxOut({
+    'الخصومات':DATA.teacherDeductions.map(d=>({
+      'المعلم':getTeacher(d.teacherId)?.name||'',
+      'السبب':d.reason,
+      'النقاط':d.points,
+      'التاريخ':d.date?fmtDate(d.date):''
+    }))
+  },'خصومات-المعلمين');
+}
+
+function taskRows(list){
+
+  return list.map(t=>({
+    'المجموعة':t.groupId?(getGroup(t.groupId)?.name||''):'مهام عامة',
+    'المهمة':t.title,
+    'التفاصيل':t.description,
+    'المسند إليهم':
+      t.employeeIds
+        .map(id=>getEmployee(id)?.name)
+        .filter(Boolean).join('، ')||'غير مسندة',
+    'الاستحقاق':t.dueDate?fmtDate(t.dueDate):'',
+    'الحالة':taskStatusLabel(t.status),
+    'آخر تحديث بواسطة':t.updatedBy,
+    'ملاحظة':t.employeeNote
+  }));
+}
+
+function exportTasksExcel(groupId){
+
+  if(groupId==='all'){
+
+    xlsxOut({
+      'المهام':taskRows(DATA.tasks),
+      'المجموعات':[
+        ...DATA.groups.map(g=>({g,list:groupTasks(g.id)})),
+        {g:{name:'مهام عامة'},list:groupTasks(null)}
+      ].map(({g,list})=>({
+        'المجموعة':g.name,
+        'عدد المهام':list.length,
+        'تمت':list.filter(t=>t.status==='done').length,
+        'قيد العمل':list.filter(t=>t.status==='doing').length,
+        'لم تتم':list.filter(t=>t.status==='todo').length,
+        'نسبة الإنجاز':donePercent(list)+'%'
+      })),
+      'الموظفون':DATA.employees.map(e=>{
+
+        const mine=DATA.tasks.filter(t=>t.employeeIds.includes(e.id));
+
+        return {
+          'الاسم':e.name,
+          'الصفة':e.isCeo?'الرئيس التنفيذي':(e.jobTitle||'موظف'),
+          'عدد المهام':mine.length,
+          'تمت':mine.filter(t=>t.status==='done').length,
+          'نسبة الإنجاز':donePercent(mine)+'%'
+        };
+      })
+    },'المهام-والموظفون');
+
+    return;
+  }
+
+  const gid=groupId||null;
+
+  const name=gid?(getGroup(gid)?.name||'مجموعة'):'مهام-عامة';
+
+  xlsxOut(
+    {'المهام':taskRows(groupTasks(gid))},
+    `مهام-${name}`
+  );
+}
+
+/* ---------- تقرير المهام PDF ---------- */
+
+function taskReportTable(tasks){
+
+  return `
+    <div class="report__tablewrap">
+
+      <table class="report__table">
+
+        <thead>
+          <tr>
+            <th>م</th>
+            <th>المهمة</th>
+            <th>المسند إليهم</th>
+            <th>الاستحقاق</th>
+            <th>الحالة</th>
+            <th>آخر تحديث</th>
+            <th>ملاحظات</th>
+          </tr>
+        </thead>
+
+        <tbody>
+
+          ${
+            tasks.length
+            ? tasks.map((t,i)=>`
+                <tr>
+                  <td>${i+1}</td>
+                  <td class="nm">
+                    ${esc(t.title)}
+                    ${t.description?`<br><small style="font-weight:500;opacity:.75;">${esc(t.description)}</small>`:''}
+                  </td>
+                  <td>${esc(t.employeeIds.map(id=>getEmployee(id)?.name).filter(Boolean).join('، ')||'—')}</td>
+                  <td>${t.dueDate?fmtDate(t.dueDate):'—'}</td>
+                  <td class="st-${t.status}">${taskStatusLabel(t.status)}</td>
+                  <td>${esc(t.updatedBy||'—')}</td>
+                  <td>${esc(t.employeeNote||'—')}</td>
+                </tr>
+              `).join('')
+            : '<tr><td colspan="7">لا توجد مهام.</td></tr>'
+          }
+
+        </tbody>
+
+      </table>
+
+    </div>
+  `;
+}
+
+function taskReportHTML(sections,title){
+
+  const {hijri,greg}=evTodayStrings();
+
+  const all=sections.flatMap(s=>s.tasks);
+
+  const c=taskCounts(all);
+
+  return `
+
+  <div class="report" id="report">
+
+    <div class="report__head">
+      <img src="${EV_LOGO_PROGRAM}" alt="" class="report__logo report__logo--program">
+      <div class="report__titlebox">
+        <h1 class="report__title">${esc(title)}</h1>
+        <div class="report__sub">برنامج «تعلّم العربية» — السقيفة</div>
+      </div>
+      <img src="${EV_LOGO_ORG}" alt="" class="report__logo report__logo--org">
+    </div>
+
+    <div class="report__meta">
+      <div>عدد المجموعات: <b>${sections.length}</b></div>
+      <div>نسبة الإنجاز: <b>${donePercent(all)}%</b></div>
+      <div>تاريخ التقرير: <b>${hijri} هـ</b> — الموافق ${greg} م</div>
+    </div>
+
+    <div class="report__summary">
+      <div class="report__stat"><span>إجمالي المهام</span><b>${c.total}</b></div>
+      <div class="report__stat"><span>تمت</span><b>${c.done}</b></div>
+      <div class="report__stat"><span>قيد العمل</span><b>${c.doing}</b></div>
+      <div class="report__stat"><span>لم تتم</span><b>${c.todo}</b></div>
+    </div>
+
+    ${sections.map(s=>{
+
+      const sc=taskCounts(s.tasks);
+
+      return `
+        <div class="task-section">
+          <h3 class="task-section__title">
+            ${esc(s.name)}
+            <small>${sc.done} من ${sc.total} تمت — ${donePercent(s.tasks)}%</small>
+          </h3>
+          ${taskReportTable(s.tasks)}
+        </div>
+      `;
+    }).join('')}
+
+    <div class="report__foot">
+      <div class="report__sig"><span>إعداد التقرير</span><div class="line"></div><b>&nbsp;</b></div>
+      <div class="report__sig"><span>الاعتماد</span><div class="line"></div><b>&nbsp;</b></div>
+    </div>
+
+  </div>
+  `;
+}
+
+function printTasksReport(groupId){
+
+  if(groupId==='all'){
+
+    const sections=[
+      ...DATA.groups.map(g=>({name:g.name,tasks:groupTasks(g.id)})),
+      {name:'مهام عامة',tasks:groupTasks(null)}
+    ].filter(s=>s.tasks.length);
+
+    if(!sections.length){
+
+      toast('لا توجد مهام لطباعة تقرير عنها.',true);
+      return;
+    }
+
+    evPrint(
+      'report',
+      'تقرير المهام الشامل',
+      taskReportHTML(sections,'تقرير المهام الشامل')
+    );
+
+    return;
+  }
+
+  const gid=groupId||null;
+
+  const name=gid?(getGroup(gid)?.name||'مجموعة'):'مهام عامة';
+
+  const tasks=groupTasks(gid);
+
+  if(!tasks.length){
+
+    toast('لا توجد مهام في هذه المجموعة.',true);
+    return;
+  }
+
+  evPrint(
+    'report',
+    `تقرير المهام - ${name}`,
+    taskReportHTML([{name,tasks}],`تقرير المهام — ${name}`)
+  );
+}
+
+/* ---------- قالب المهام ---------- */
+
+function mapTemplate(r){
+
+  return {
+    id:r.id,
+    title:r.title||'',
+    description:r.description||'',
+    employeeIds:Array.isArray(r.employee_ids)?r.employee_ids:[]
+  };
+}
+
+function renderStaffTemplates(){
+
+  return panel(
+    'قالب المهام',
+
+    `
+    <div class="toolbar">
+
+      <button
+        class="btn ghost small"
+        onclick="openStaffView('home')">
+        ← رجوع للمجموعات
+      </button>
+
+      <button
+        class="btn secondary small"
+        onclick="openTemplateModal()">
+        ＋ إضافة مهمة للقالب
+      </button>
+
+    </div>
+
+    <div class="notice">
+
+      هذي المهام المشتركة بين كل المجموعات. تُضاف تلقائيًا لأي مجموعة
+      جديدة تنشئها، وتقدر بعدها تضيف وتحذف وتعدّل داخل المجموعة نفسها
+      بدون ما يتأثر القالب. تقدر أيضًا تحدد موظفين افتراضيين لكل مهمة.
+
+    </div>
+
+    <div class="card-inner">
+
+      <h3>إضافة عدة مهام للقالب دفعة واحدة</h3>
+
+      <div class="form-grid">
+
+        <textarea
+          id="templateLines"
+          class="input"
+          rows="5"
+          placeholder="المهمة الأولى&#10;المهمة الثانية&#10;المهمة الثالثة"></textarea>
+
+        <button
+          type="button"
+          class="btn primary"
+          onclick="addTemplateLines()">
+          إضافة للقالب
+        </button>
+
+      </div>
+
+    </div>
+
+    <div class="table-wrap">
+
+      <table>
+
+        <thead>
+          <tr>
+            <th>المهمة</th>
+            <th>المسند إليهم افتراضيًا</th>
+            <th></th>
+          </tr>
+        </thead>
+
+        <tbody>
+
+          ${
+            DATA.taskTemplates.length
+            ? DATA.taskTemplates.map(t=>`
+
+                <tr>
+
+                  <td>
+                    <b>${esc(t.title)}</b>
+                    ${t.description?`<div class="hint" style="text-align:right;margin-top:4px;">${esc(t.description)}</div>`:''}
+                  </td>
+
+                  <td>
+                    ${
+                      t.employeeIds
+                        .map(id=>getEmployee(id)?.name)
+                        .filter(Boolean)
+                        .map(n=>`<span class="assignee-tag">${esc(n)}</span>`)
+                        .join('')||'-'
+                    }
+                  </td>
+
+                  <td style="display:flex;gap:6px;flex-wrap:wrap;">
+
+                    <button
+                      class="btn ghost small"
+                      onclick="openTemplateModal('${t.id}')">
+                      تعديل
+                    </button>
+
+                    <button
+                      class="btn danger small"
+                      onclick="deleteTemplate('${t.id}')">
+                      حذف
+                    </button>
+
+                  </td>
+
+                </tr>
+
+              `).join('')
+            : `
+              <tr>
+                <td colspan="3">القالب فارغ. أضف المهام المتكررة هنا.</td>
+              </tr>
+            `
+          }
+
+        </tbody>
+
+      </table>
+
+    </div>
+    `
+  );
+}
+
+async function addTemplateLines(){
+
+  const lines=
+    ($('templateLines')?.value||'')
+      .split('\n').map(l=>l.trim()).filter(Boolean);
+
+  if(!lines.length){
+
+    toast('اكتب مهمة واحدة على الأقل.',true);
+    return;
+  }
+
+  try{
+
+    const rows=await sb(
+      db()
+      .from('task_templates')
+      .insert(lines.map(title=>({title})))
+      .select()
+    );
+
+    (rows||[]).forEach(r=>DATA.taskTemplates.push(mapTemplate(r)));
+
+    toast(`تمت إضافة ${lines.length} مهمة للقالب`);
+
+    renderAdmin();
+
+  }catch(x){
+
+    toast(
+      'تعذر الحفظ — تأكد من تشغيل v5_setup.sql. '+friendlyError(x),
+      true
+    );
+  }
+}
+
+function openTemplateModal(id){
+
+  const t=id?DATA.taskTemplates.find(x=>x.id===id):null;
+
+  openEditModal({
+
+    title:t?'تعديل مهمة القالب':'إضافة مهمة للقالب',
+
+    fields:[
+      {key:'title',label:'المهمة',value:t?.title||'',required:true},
+      {key:'description',label:'التفاصيل (اختياري)',type:'textarea',value:t?.description||''},
+      {key:'employeeIds',label:'المسند إليهم افتراضيًا (اختياري)',type:'checkboxes',
+        value:t?.employeeIds||[],
+        options:DATA.employees.map(e=>({value:e.id,label:e.name}))}
+    ],
+
+    onSave:async v=>{
+
+      const payload={
+        title:v.title,
+        description:v.description,
+        employee_ids:v.employeeIds
+      };
+
+      if(t){
+
+        const row=await updateRow('task_templates',t.id,payload);
+
+        DATA.taskTemplates=
+          DATA.taskTemplates.map(x=>x.id===t.id?mapTemplate(row):x);
+
+      }else{
+
+        const row=await sb(
+          db().from('task_templates').insert(payload).select().single()
+        );
+
+        DATA.taskTemplates.push(mapTemplate(row));
+      }
+
+      toast('تم الحفظ');
+
+      renderAdmin();
+    }
+  });
+}
+
+async function deleteTemplate(id){
+
+  if(!confirm('حذف هذه المهمة من القالب؟ (المجموعات الحالية لا تتأثر)')) return;
+
+  try{
+
+    await sb(
+      db().from('task_templates').delete().eq('id',id)
+    );
+
+    DATA.taskTemplates=
+      DATA.taskTemplates.filter(t=>t.id!==id);
+
+    toast('تم الحذف');
+
+    renderAdmin();
+
+  }catch(x){
+
+    toast(friendlyError(x),true);
+  }
+}
+
+async function createTasksFromTemplate(groupId){
+
+  const existing=
+    new Set(groupTasks(groupId).map(t=>t.title.trim()));
+
+  const rows=
+    DATA.taskTemplates
+      .filter(t=>!existing.has(t.title.trim()))
+      .map(t=>({
+        group_id:groupId,
+        title:t.title,
+        description:t.description,
+        status:'doing',
+        employee_ids:t.employeeIds.filter(id=>getEmployee(id))
+      }));
+
+  if(!rows.length) return 0;
+
+  const inserted=await sb(
+    db().from('tasks').insert(rows).select()
+  );
+
+  (inserted||[])
+    .map(mapTask)
+    .reverse()
+    .forEach(t=>DATA.tasks.unshift(t));
+
+  return rows.length;
+}
+
+async function applyTemplateToGroup(groupId){
+
+  if(!DATA.taskTemplates.length){
+
+    toast('القالب فارغ، أضف مهامه أولاً من "قالب المهام".',true);
+    return;
+  }
+
+  try{
+
+    const n=await createTasksFromTemplate(groupId);
+
+    toast(
+      n?`تمت إضافة ${n} مهمة من القالب`
+       :'كل مهام القالب موجودة في المجموعة بالفعل.'
+    );
+
+    renderAdmin();
+
+  }catch(x){
+
+    toast(friendlyError(x),true);
+  }
+}
+
+async function saveGroupAsTemplate(groupId){
+
+  const have=
+    new Set(DATA.taskTemplates.map(t=>t.title.trim()));
+
+  const rows=
+    groupTasks(groupId)
+      .filter(t=>!have.has(t.title.trim()))
+      .map(t=>({title:t.title,description:t.description}));
+
+  if(!rows.length){
+
+    toast('كل مهام هذي المجموعة موجودة في القالب أصلًا.');
+    return;
+  }
+
+  if(!confirm(`إضافة ${rows.length} مهمة من هذي المجموعة إلى القالب؟`)) return;
+
+  try{
+
+    const inserted=await sb(
+      db().from('task_templates').insert(rows).select()
+    );
+
+    (inserted||[]).forEach(r=>DATA.taskTemplates.push(mapTemplate(r)));
+
+    toast(`تمت إضافة ${rows.length} مهمة للقالب`);
+
+    renderAdmin();
+
+  }catch(x){
+
+    toast(friendlyError(x),true);
+  }
+}
+
+/* =========================================================
    حذف البيانات القديمة (الإعدادات)
    ========================================================= */
 
 const WIPE_ITEMS = [
-  {key:'evaluations',  label:'تقييمات الطلاب',        table:'evaluations',        col:'id',      needs:[],
+  {key:'evaluations',  label:'تقييمات الطلاب (القديمة)',table:'evaluations',        col:'id',      needs:[],
    count:()=>DATA.evaluations.length},
   {key:'teacherEvals', label:'تقييمات المعلمين (القديمة)',table:'teacher_evaluations',col:'id',  needs:[],
    count:()=>DATA.teacherEvaluations.length},
@@ -10185,6 +10901,8 @@ const WIPE_ITEMS = [
    count:()=>DATA.tasks.length},
   {key:'ceoReports',   label:'التقارير المرسلة للرئيس التنفيذي',table:'ceo_reports',col:'id',    needs:[],
    count:()=>DATA.ceoReports.length},
+  {key:'templates',    label:'قالب المهام',            table:'task_templates',     col:'id',      needs:[],
+   count:()=>DATA.taskTemplates.length},
   {key:'groups',       label:'مجموعات المهام',        table:'task_groups',        col:'id',      needs:['tasks'],
    count:()=>DATA.groups.length},
   {key:'employees',    label:'الموظفون',              table:'employees',          col:'id',      needs:['tasks'],
