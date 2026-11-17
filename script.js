@@ -10054,6 +10054,109 @@ async function toggleReportCeo(id){
 }
 
 /* =========================================================
+   تحسينات الجوال (جداول بطاقات + تمرير القائمة)
+   ========================================================= */
+
+function enhanceTables(root){
+
+  (root||document).querySelectorAll(
+    '.main-panel table:not(.score-table):not(.report__table)'
+  ).forEach(t=>{
+
+    const heads=
+      Array.from(t.querySelectorAll('thead th'))
+        .map(th=>th.textContent.replace(/\s+/g,' ').trim());
+
+    if(!heads.length) return;
+
+    t.classList.add('rt');
+
+    t.querySelectorAll('tbody tr').forEach(tr=>{
+
+      Array.from(tr.children).forEach((td,i)=>{
+
+        if(td.hasAttribute('colspan')) return;
+
+        if(td.dataset.label===undefined || td.dataset.label!==(heads[i]||'')){
+          td.dataset.label=heads[i]||'';
+        }
+      });
+    });
+  });
+}
+
+function keepNavVisible(){
+
+  if(window.innerWidth>700) return;
+
+  const btn=
+    document.querySelector('.screen.active .sidebar .nav-btn.active');
+
+  btn?.scrollIntoView({inline:'center',block:'nearest'});
+}
+
+function syncHeaderHeight(){
+
+  const h=document.querySelector('.app-header');
+
+  if(h){
+    document.documentElement.style.setProperty(
+      '--hdr',h.offsetHeight+'px'
+    );
+  }
+}
+
+(function initMobileEnhancements(){
+
+  let queued=false;
+
+  const run=()=>{
+
+    queued=false;
+
+    enhanceTables();
+    keepNavVisible();
+  };
+
+  const queue=()=>{
+
+    if(queued) return;
+
+    queued=true;
+
+    requestAnimationFrame(run);
+  };
+
+  if(typeof MutationObserver!=='undefined'){
+
+    const obs=new MutationObserver(queue);
+
+    ['adminMain','teacherMain','employeeMain','ceoMain'].forEach(id=>{
+
+      const el=document.getElementById(id);
+
+      if(el){
+        obs.observe(el,{childList:true,subtree:true});
+      }
+    });
+
+    ['adminNav','teacherNav','employeeNav','ceoNav'].forEach(id=>{
+
+      const el=document.getElementById(id);
+
+      if(el){
+        obs.observe(el,{childList:true});
+      }
+    });
+  }
+
+  window.addEventListener('resize',syncHeaderHeight);
+  window.addEventListener('load',syncHeaderHeight);
+
+  syncHeaderHeight();
+})();
+
+/* =========================================================
    حذف البيانات القديمة (الإعدادات)
    ========================================================= */
 

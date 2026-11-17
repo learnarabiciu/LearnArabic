@@ -680,3 +680,158 @@ tr.mine-row td{background:#fefaf1;}
 .assignee-tag.ceo{background:var(--purple-deep);color:var(--gold);}
 .ceo-report-view{overflow-x:auto;}
 @media (max-width:640px){.ceo-banner{flex-direction:column;text-align:center;}}
+
+/* =========================================================
+   تبويبات الدخول
+   ========================================================= */
+.login-tabs{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:20px;background:var(--purple-tint);padding:5px;border-radius:14px;}
+.login-tabs button{background:transparent;color:var(--purple);padding:10px 6px;border-radius:10px;font-weight:700;font-size:13.5px;transition:.18s;}
+.login-tabs button.active{background:var(--purple);color:var(--white);box-shadow:0 4px 10px rgba(71,34,92,.25);}
+.login-pane[hidden]{display:none !important;}
+.install-box{margin-top:18px;padding-top:14px;border-top:1px dashed var(--line);}
+.install-box[hidden]{display:none !important;}
+
+/* =========================================================
+   تحسينات الجوال
+   ========================================================= */
+:root{--hdr:62px;}
+
+/* بطاقات بدل الجداول (تُفعَّل تلقائيًا بـ JS على الجداول العريضة) */
+@media (max-width:700px){
+
+  html{-webkit-text-size-adjust:100%;}
+  body{font-size:15px;}
+
+  /* الهيدر مضغوط */
+  .app-header{padding:8px 12px;padding-top:calc(8px + env(safe-area-inset-top));gap:8px;}
+  .brand{gap:8px;min-width:0;}
+  .brand img{height:34px;}
+  .brand-div{height:24px;}
+  .brand-text span{display:none;}
+  .brand-text b{font-size:14px;}
+  .header-actions{gap:6px;flex:none;}
+  .user-chip{font-size:12px;padding:5px 10px;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .header-actions .btn{padding:7px 12px;font-size:12.5px;}
+
+  /* القائمة الجانبية تصير شريط أفقي ثابت قابل للتمرير */
+  .layout{flex-direction:column;min-height:0;}
+  .sidebar{
+    flex-direction:row;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;
+    gap:6px;padding:8px 10px;width:100%;height:auto;
+    position:sticky;top:var(--hdr);z-index:40;
+    border-left:none;border-bottom:1px solid var(--line);
+    scrollbar-width:none;-webkit-overflow-scrolling:touch;
+  }
+  .sidebar::-webkit-scrollbar{display:none;}
+  .nav-btn{flex:none;width:auto;white-space:nowrap;padding:9px 14px;border-radius:999px;background:#f6f0f9;font-size:13.5px;}
+
+  .main-panel{margin:10px;padding:16px 14px;border-radius:14px;}
+  .section-head h2{font-size:19px;}
+
+  /* أحجام تناسب اللمس + منع تكبير آيفون عند الكتابة */
+  input,select,textarea,.input,.field input,.field select,.field textarea{font-size:16px !important;min-height:44px;}
+  textarea.input{min-height:90px;}
+  .btn{min-height:44px;justify-content:center;}
+  .btn.small{min-height:38px;padding:7px 12px;}
+  .week-arrow{width:40px;height:40px;}
+
+  .form-grid{grid-template-columns:1fr;gap:10px;}
+  .form-grid > .btn{justify-self:stretch;}
+  .toolbar{gap:8px;}
+  .toolbar .input,.toolbar select.input{width:auto !important;flex:1 1 140px;min-width:0;max-width:none !important;}
+  .toolbar .btn{flex:1 1 auto;}
+  .toolbar label{font-size:13px;}
+
+  .stats-grid{grid-template-columns:1fr 1fr;gap:10px;}
+  .stat-card{padding:14px 10px;}
+  .stat-card strong{font-size:22px;}
+  .group-grid{grid-template-columns:1fr;gap:10px;}
+  .group-tile.add{min-height:70px;}
+  .progress-row{flex-wrap:wrap;gap:4px 10px;}
+  .progress-row .progress-label{width:100%;}
+  .progress-row .progress-track{flex:1;}
+
+  .subtabs{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;gap:6px;}
+  .subtabs::-webkit-scrollbar{display:none;}
+  .subtab{flex:none;white-space:nowrap;background:#f6f0f9;border-radius:999px;}
+
+  .ceo-banner{padding:16px;gap:14px;}
+  .ceo-seal{width:88px;height:88px;}
+  .week-switcher{width:100%;justify-content:space-between;}
+
+  /* النوافذ المنبثقة من الأسفل */
+  .modal-backdrop{align-items:flex-end;padding:0;}
+  .modal-box{max-width:none;border-radius:20px 20px 0 0;max-height:92vh;padding:22px 18px calc(22px + env(safe-area-inset-bottom));}
+  .modal-actions .btn{flex:1;}
+
+  /* محرر التقرير الجانبي يملأ الشاشة */
+  .side-editor{width:100vw;}
+
+  /* ---------- الجداول كبطاقات ---------- */
+  .table-wrap{overflow:visible;}
+  table.rt,table.rt tbody{display:block;width:100%;}
+  table.rt thead{display:none;}
+  table.rt tr{
+    display:block;background:#fcfaff;border:1px solid var(--line);
+    border-radius:14px;padding:6px 14px;margin-bottom:12px;
+  }
+  table.rt tr:last-child td{border-bottom:none;}
+  table.rt td{
+    display:flex;justify-content:space-between;align-items:center;gap:14px;
+    padding:9px 0;border:none;border-bottom:1px dashed var(--line);
+    text-align:left;min-width:0;
+  }
+  table.rt td::before{
+    content:attr(data-label);flex:none;font-weight:700;color:var(--muted);
+    font-size:12.5px;text-align:right;
+  }
+  table.rt td[data-label=""]::before{display:none;}
+  table.rt td:first-child{
+    display:block;text-align:right;font-weight:800;color:var(--purple);
+    font-size:15px;padding:12px 0 10px;
+  }
+  table.rt td:first-child::before{display:none;}
+  table.rt td[colspan]{display:block;text-align:center;border:none;}
+  table.rt td > select,table.rt td > input{flex:1;min-width:0;max-width:62%;}
+  table.rt td .progress-row{flex:1;margin:0;}
+  table.rt td[style*="display:flex"]{justify-content:flex-start;flex-wrap:wrap;}
+  table.rt td[style*="display:flex"] .btn{flex:1 1 auto;}
+  table.rt tr.mine-row{background:#fefaf1;}
+  table.rt tr.mine-row td{background:transparent;}
+
+  /* جدول درجات التقييم الأسبوعي يبقى شبكة قابلة للتمرير مع تثبيت عمود الاسم */
+  .table-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch;}
+  .score-table th:first-child,.score-table td:first-child{position:sticky;right:0;background:var(--white);z-index:2;box-shadow:-6px 0 8px -6px rgba(71,34,92,.25);}
+  .score-table input{width:62px;font-size:16px;}
+
+  /* الشهادة والتقرير المعاينة */
+  .report{padding:18px 14px;}
+  .toast-wrap{left:12px;right:12px;bottom:calc(14px + env(safe-area-inset-bottom));}
+  .toast{text-align:center;}
+
+  .login-shell{padding:16px;align-items:flex-start;min-height:calc(100vh - 62px);}
+  .login-box{padding:22px 18px;border-radius:18px;}
+}
+
+@media (max-width:380px){
+  .stats-grid{grid-template-columns:1fr;}
+  .login-tabs button{font-size:12.5px;padding:9px 4px;}
+}
+
+/* وضع التطبيق المثبّت */
+@media (display-mode: standalone){
+  body{overscroll-behavior-y:none;}
+  .app-header{padding-top:calc(10px + env(safe-area-inset-top));}
+}
+
+/* لمسات أخيرة للجوال */
+@media (max-width:700px){
+  table.rt td:last-child{border-bottom:none;}
+  .ceo-seal{width:100px;height:100px;}
+  .ceo-seal__ring b{font-size:11.5px;}
+  .ceo-seal__ring small{font-size:9px;}
+  .ceo-seal__star{font-size:16px;}
+}
+@media (max-width:480px){
+  .brand-text{display:none;}
+}
