@@ -776,6 +776,7 @@ async function teacherCodeLogin(){
 
     try{
       localStorage.setItem('saqifah:teacherSession',row.id);
+      localStorage.setItem('saqifah:teacherCode',code);
     }catch{}
 
     await loadData();
@@ -920,6 +921,10 @@ async function logout(){
 
       localStorage.removeItem(
         'saqifah:teacherSession'
+      );
+
+      localStorage.removeItem(
+        'saqifah:teacherCode'
       );
 
     }else{
@@ -7044,46 +7049,99 @@ async function boot(){
     if(!session){
 
       let savedTeacherId=null;
+      let savedTeacherCode=null;
 
       try{
         savedTeacherId=
           localStorage.getItem('saqifah:teacherSession');
+        savedTeacherCode=
+          localStorage.getItem('saqifah:teacherCode');
       }catch{}
 
-      if(savedTeacherId){
+      if(savedTeacherId && savedTeacherCode){
+
+        // إعادة التحقق من كود المعلم على الخادم:
+        // إذا غيّرت الإدارة الكود تُغلق الجلسة القديمة فورًا
+        let verified=null;
+        let checkFailed=false;
 
         try{
 
-          await loadData();
-
-          const t=getTeacher(savedTeacherId);
-
-          if(t){
-
-            currentUser={codeLogin:true,name:t.name};
-            currentAdmin=false;
-            currentTeacherId=t.id;
-
-            selectedTeacherRoomId=
-              teacherRooms()[0]?.id||null;
-
-            teacherTab='reports';
-
-            showScreen('screen-teacher');
-
-            renderTeacher();
-
-            return;
-          }
+          verified=await sb(
+            db().rpc('verify_teacher_login',{
+              p_id:savedTeacherId,
+              p_code:savedTeacherCode
+            })
+          );
 
         }catch(e){
 
+          checkFailed=true;
+
           console.warn(
-            'تعذر استعادة جلسة المعلم:',
+            'تعذر التحقق من جلسة المعلم:',
             e
           );
         }
 
+        if(verified){
+
+          try{
+
+            await loadData();
+
+            const t=getTeacher(savedTeacherId);
+
+            if(t){
+
+              currentUser={codeLogin:true,name:t.name};
+              currentAdmin=false;
+              currentTeacherId=t.id;
+
+              selectedTeacherRoomId=
+                teacherRooms()[0]?.id||null;
+
+              teacherTab='reports';
+
+              showScreen('screen-teacher');
+
+              renderTeacher();
+
+              return;
+            }
+
+          }catch(e){
+
+            console.warn(
+              'تعذر استعادة جلسة المعلم:',
+              e
+            );
+          }
+
+          try{
+            localStorage.removeItem('saqifah:teacherSession');
+            localStorage.removeItem('saqifah:teacherCode');
+          }catch{}
+
+        }else if(!checkFailed){
+
+          // الكود تغيّر فعلًا - إنهاء الجلسة وطلب الدخول بالكود الجديد
+          try{
+            localStorage.removeItem('saqifah:teacherSession');
+            localStorage.removeItem('saqifah:teacherCode');
+          }catch{}
+
+          toast(
+            'تم تغيير كود دخولك - سجّل الدخول بالكود الجديد.'
+          );
+        }
+        // عند تعذر الاتصال بالخادم تبقى الجلسة محفوظة
+        // وتظهر شاشة الدخول فقط دون حذفها
+
+      }else if(savedTeacherId){
+
+        // جلسة من قبل هذا التحديث (بدون كود محفوظ):
+        // تُطلب إعادة الدخول مرة واحدة ثم تُحفظ بشكل آمن
         try{
           localStorage.removeItem('saqifah:teacherSession');
         }catch{}
