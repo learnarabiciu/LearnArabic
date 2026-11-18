@@ -646,12 +646,10 @@ async function employeeCodeLogin(){
     }
 
     const row=await sb(
-      db()
-      .from('employees')
-      .select('*')
-      .eq('id',employeeId)
-      .eq('login_code',code)
-      .maybeSingle()
+      db().rpc('verify_employee_login',{
+        p_id:employeeId,
+        p_code:code
+      })
     );
 
     if(!row){
@@ -755,12 +753,10 @@ async function teacherCodeLogin(){
     }
 
     const row=await sb(
-      db()
-      .from('teachers')
-      .select('*')
-      .eq('id',teacherId)
-      .eq('login_code',code)
-      .maybeSingle()
+      db().rpc('verify_teacher_login',{
+        p_id:teacherId,
+        p_code:code
+      })
     );
 
     if(!row){
@@ -7119,7 +7115,7 @@ async function boot(){
             currentAdmin=false;
             currentEmployeeId=ceoRow.id;
             currentIsCeo=true;
-            currentCeoCode=ceoRow.login_code;
+            currentCeoCode=''; // login_code لم يعد متاحًا للقراءة العامة - يُطلب الكود الحالي عند التغيير
 
             await loadData();
 
@@ -9524,12 +9520,9 @@ async function ceoCodeLogin(){
     }
 
     const row=await sb(
-      db()
-      .from('employees')
-      .select('*')
-      .eq('is_ceo',true)
-      .eq('login_code',code)
-      .maybeSingle()
+      db().rpc('verify_ceo_login',{
+        p_code:code
+      })
     );
 
     if(!row){
@@ -9544,7 +9537,7 @@ async function ceoCodeLogin(){
     currentTeacherId=null;
     currentEmployeeId=row.id;
     currentIsCeo=true;
-    currentCeoCode=row.login_code;
+    currentCeoCode=code; // الكود الذي أدخله للتو - لا نقرأ login_code من القاعدة
 
     try{
       localStorage.setItem('saqifah:ceoSession',row.id);
@@ -9858,6 +9851,7 @@ function openCeoCodeModal(){
     title:'تغيير كود الدخول',
 
     fields:[
+      {key:'oldCode',label:'الكود الحالي',required:true},
       {key:'newCode',label:'الكود الجديد (4 أحرف أو أرقام على الأقل)',required:true},
       {key:'confirm',label:'أعد كتابة الكود الجديد',required:true}
     ],
@@ -9876,7 +9870,7 @@ function openCeoCodeModal(){
 
       const ok=await sb(
         db().rpc('ceo_change_code',{
-          old_code:currentCeoCode,
+          old_code:v.oldCode.trim(),
           new_code:code
         })
       );
