@@ -443,7 +443,11 @@ async function loadData(){
     sb(
       db()
       .from('teachers')
-      .select('*')
+      .select(
+        currentAdmin||currentProfile?.role==='admin'
+          ?'*'
+          :'id,name,phone,user_id,gender,last_seen_announce,drive_folder_id,drive_folder_url,created_at'
+      )
       .order('created_at',{ascending:true})
     ),
 
