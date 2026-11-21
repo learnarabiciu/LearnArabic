@@ -54,18 +54,18 @@
       <p class="lead">اختر نوع الدخول ثم أدخل بياناتك.</p>
 
       <div class="login-tabs" id="loginTabs">
-        <button type="button" data-role="ceo" onclick="setLoginRole('ceo')"><span class="ceo-dot"></span> الرئيس التنفيذي</button>
+        <button type="button" data-role="ceo" onclick="setLoginRole('ceo')"><span class="ceo-dot"></span> مدير الأكاديمية</button>
         <button type="button" data-role="admin" onclick="setLoginRole('admin')">الإدارة</button>
         <button type="button" data-role="teacher" onclick="setLoginRole('teacher')">المعلم/ـة</button>
         <button type="button" data-role="employee" onclick="setLoginRole('employee')">الموظف/ـة</button>
       </div>
 
       <div class="login-section login-pane" data-pane="ceo">
-        <label>الرئيس التنفيذي</label>
+        <label>مدير الأكاديمية</label>
         <div class="field">
           <input type="password" id="ceoCodeInput" placeholder="كود الدخول" autocomplete="off">
         </div>
-        <button class="btn primary block" onclick="ceoCodeLogin()">دخول الرئيس التنفيذي</button>
+        <button class="btn primary block" onclick="ceoCodeLogin()">دخول مدير الأكاديمية</button>
       </div>
 
       <div class="login-section login-pane" data-pane="admin">
@@ -105,8 +105,13 @@
       </div>
 
       <div class="install-box" id="installBox" hidden>
-        <button type="button" class="btn ghost block" id="installBtn">📲 تثبيت الموقع كتطبيق على جوالك</button>
+        <button type="button" class="btn ghost block" id="installBtn"><svg class="ic" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg> تثبيت الموقع كتطبيق على جوالك</button>
         <div class="hint" id="installHint"></div>
+      </div>
+
+      <div class="site-credit" title="Abdulwahab Hanif">
+        <img src="assets/ah-logo.png" alt="AH">
+        <span>Designed by <b>AH</b></span>
       </div>
     </div>
   </div>
@@ -136,7 +141,7 @@
   </div>
 </section>
 
-<!-- لوحة الرئيس التنفيذي -->
+<!-- لوحة مدير الأكاديمية -->
 <section id="screen-ceo" class="screen">
   <div class="layout">
     <nav class="sidebar" id="ceoNav"></nav>

@@ -201,6 +201,36 @@ function mapTask(r){
   };
 }
 
+/* ملاحظة المدير: تُخزَّن داخل حقل الوصف بعد فاصل مميز */
+const ADMIN_NOTE_SEP='\n\u27E6 \u0645\u0644\u0627\u062D\u0638\u0629 \u0627\u0644\u0645\u062F\u064A\u0631 \u27E7\n';
+function splitTaskDesc(t){
+  const d=t?.description||'';
+  const i=d.indexOf(ADMIN_NOTE_SEP);
+  if(i<0) return {desc:d,adminNote:''};
+  return {
+    desc:d.slice(0,i).trim(),
+    adminNote:d.slice(i+ADMIN_NOTE_SEP.length).trim()
+  };
+}
+function joinTaskDesc(desc,adminNote){
+  desc=(desc||'').trim();
+  adminNote=(adminNote||'').trim();
+  return adminNote?desc+ADMIN_NOTE_SEP+adminNote:desc;
+}
+
+/* مرحلة المهمة من بادئة العنوان */
+const TASK_PHASES=['قبل الدورة','أثناء الدورة','بعد الدورة'];
+function taskPhase(t){
+  const m=/^([123\u0661-\u0663])\s*[\u00B7.]\s*([^\u2014\-]+)/.exec(t?.title||'');
+  if(!m) return '';
+  return m[2].trim();
+}
+
+function taskDisplayTitle(t){
+  return String(t?.title||'')
+    .replace(/^([123١-٣])\s*[·.]\s*[^—\-]+[—\-]\s*/,'');
+}
+
 function teacherRooms(){
   return DATA.rooms.filter(r=>r.teacherId===currentTeacherId);
 }
@@ -246,10 +276,45 @@ function avgScores(obj,criteria,maxScale=5){
   );
 }
 
+const ICONS={
+  edit:'<path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/>',
+  back:'<line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/>',
+  file:'<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><polyline points="14 2 14 8 20 8"/>',
+  trophy:'<path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.22C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.22C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/>',
+  printer:'<polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/>',
+  download:'<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>',
+  upload:'<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>',
+  send:'<line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>',
+  refresh:'<polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>',
+  star:'<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>',
+  x:'<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>',
+  check:'<polyline points="20 6 9 17 4 12"/>',
+  checkCircle:'<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>',
+  folder:'<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2Z"/>',
+  hand:'<path d="M18 11V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v0"/><path d="M14 10V4a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v2"/><path d="M10 10.5V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/>',
+  medal:'<circle cx="12" cy="8" r="7"/><polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"/>',
+  trash:'<polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>',
+  chart:'<line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/>',
+  users:'<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+  clipboard:'<path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/>',
+  save:'<path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/>',
+  pin:'<line x1="12" y1="17" x2="12" y2="22"/><path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v3.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24Z"/>',
+  mobile:'<rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/>',
+  plus:'<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>'
+};
+ICONS.starFill=ICONS.star;
+
+function icon(name,size){
+  const p=ICONS[name]||'';
+  const s=size||16;
+  const fill=(name==='starFill')?'currentColor':'none';
+  return `<svg class="ic" width="${s}" height="${s}" viewBox="0 0 24 24" fill="${fill}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${p}</svg>`;
+}
+
 function stars(v){
   const n=Math.max(0,Math.min(5,Number(v||0)));
 
-  return '★'.repeat(n)+'☆'.repeat(5-n);
+  return icon('starFill',13).repeat(n)+icon('star',13).repeat(5-n);
 }
 
 function normalizeScores(row,criteria){
@@ -669,7 +734,7 @@ async function employeeCodeLogin(){
     if(row.is_ceo){
 
       toast(
-        'استخدم خانة "الرئيس التنفيذي" للدخول.',
+        'استخدم خانة "مدير الأكاديمية" للدخول.',
         true
       );
 
@@ -987,6 +1052,13 @@ function navButton(id,label,active,fn){
   `;
 }
 
+function sideCreditHtml(){
+  return `<div class="side-credit" title="Abdulwahab Hanif">
+    <img src="assets/ah-logo.png" alt="AH">
+    <span>Designed by <b>AH</b></span>
+  </div>`;
+}
+
 function renderAdminNav(){
 
   const n=$('adminNav');
@@ -1058,7 +1130,7 @@ function renderAdminNav(){
       "adminTab='settings';renderAdmin()"
     )
 
-  ].join('');
+  ].join('')+sideCreditHtml();
 }
 
 function renderTeacherNav(){
@@ -1077,6 +1149,20 @@ function renderTeacherNav(){
     ),
 
     navButton(
+      'evals',
+      'تقييماتي',
+      teacherTab==='evals',
+      "teacherTab='evals';renderTeacher()"
+    ),
+
+    navButton(
+      'attend',
+      'تحضيري',
+      teacherTab==='attend',
+      "teacherTab='attend';renderTeacher()"
+    ),
+
+    navButton(
       'announce',
       'الإعلانات',
       teacherTab==='announce',
@@ -1090,7 +1176,7 @@ function renderTeacherNav(){
       "teacherTab='settings';renderTeacher()"
     )
 
-  ].join('');
+  ].join('')+sideCreditHtml();
 }
 
 /* =========================================================
@@ -1548,7 +1634,7 @@ function renderAdminTeachers(){
                   class="btn ghost small"
                   onclick="createTeacherDriveFolder('${t.id}')">
 
-                  ${t.driveFolderUrl?'تحديث مجلد Drive':'📁 إنشاء مجلد Drive'}
+                  ${t.driveFolderUrl?'تحديث مجلد Drive':icon('folder')+' إنشاء مجلد Drive'}
 
                 </button>
 
@@ -1890,7 +1976,7 @@ let evDeductTeacher = '';
 const evSaveTimers = {};
 
 function evEmptySettings(){
-  return {course:null, criteria:null, cert:null, report:null, reportNotes:{}};
+  return {course:null, criteria:null, cert:null, report:null, reportNotes:{}, weekTypes:{}, courseEvals:{}, employeeShortNames:{}};
 }
 
 function mapTeacherScore(r){
@@ -1902,17 +1988,308 @@ function mapTeacherScore(r){
   };
 }
 
+/* ---------- التحضير اليومي (بصمة الحضور) ---------- */
+
+function attCourseCfg(){
+  const c=DATA.evalSettings.course||{};
+  return {
+    startTime:c.startTime||'08:00',
+    graceMinutes:Number(c.graceMinutes??10),
+    absentAfterMinutes:Number(c.absentAfterMinutes??30),
+    startDate:c.startDate||''
+  };
+}
+
+function attStatus(rec){
+  const cfg=attCourseCfg();
+  const t=new Date(rec.ts);
+  const [h,m]=cfg.startTime.split(':').map(Number);
+  const grace=new Date(t);
+  grace.setHours(h,m+cfg.graceMinutes,0,0);
+  const absent=new Date(t);
+  absent.setHours(h,m+cfg.absentAfterMinutes,0,0);
+  return t<=grace?'حاضر':(t<=absent?'متأخر':'غائب');
+}
+
+function attBadge(st){
+  return st==='حاضر'?'done':(st==='متأخر'?'doing':'overdue');
+}
+
+function attLimit(mins){
+  const cfg=attCourseCfg();
+  const [h,m]=cfg.startTime.split(':').map(Number);
+  const d=new Date(2000,0,1,h,m+Number(mins||0));
+  return d.toLocaleTimeString('ar-SA',{hour:'2-digit',minute:'2-digit'});
+}
+
+function attCourseDays(){
+  const cfg=attCourseCfg();
+  if(!cfg.startDate) return [];
+  const isoLocal=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+  const [h,m]=cfg.startTime.split(':').map(Number);
+  const now=new Date();
+  const todayIso=isoLocal(now);
+  const days=[];
+  const d=new Date(cfg.startDate+'T12:00:00');
+  const end=new Date();
+  end.setHours(23,59,59,999);
+  while(d<=end){
+    const dow=d.getDay();
+    if(dow!==5 && dow!==6){
+      const iso=isoLocal(d);
+      const cut=new Date(d);
+      cut.setHours(h,m+cfg.absentAfterMinutes,0,0);
+      if(iso<todayIso || (iso===todayIso && now>cut)) days.push(iso);
+    }
+    d.setDate(d.getDate()+1);
+  }
+  return days;
+}
+
+function attNoShowDays(teacherId){
+  const recs=new Set((DATA.attendance||[]).filter(r=>r.teacherId===teacherId).map(r=>r.date));
+  return attCourseDays().filter(d=>!recs.has(d)).length;
+}
+
+function attTodayRec(){
+  const today=new Date().toISOString().slice(0,10);
+  return (DATA.attendance||[]).find(r=>
+    r.teacherId===currentTeacherId && r.date===today
+  );
+}
+
+async function teacherCheckIn(){
+
+  if(attTodayRec()) return;
+
+  const now=new Date();
+  const rec={
+    teacherId:currentTeacherId,
+    date:now.toISOString().slice(0,10),
+    ts:now.toISOString()
+  };
+  DATA.attendance=(DATA.attendance||[]).concat([rec]);
+
+  try{
+    await sb(
+      db()
+      .from('app_settings')
+      .upsert({
+        key:'attendance',
+        value:DATA.attendance,
+        updated_at:new Date().toISOString()
+      })
+    );
+    toast('تم تسجيل حضورك اليوم.');
+  }catch(e){
+    toast('تم تسجيل حضورك محليًا — سيُعتمد بعد تفعيل صلاحية الحفظ.',true);
+  }
+  renderTeacher();
+}
+
+function renderTeacherAttendance(){
+
+  const rec=attTodayRec();
+  const mine=(DATA.attendance||[])
+    .filter(r=>r.teacherId===currentTeacherId)
+    .sort((a,b)=>b.date.localeCompare(a.date))
+    .slice(0,14);
+  const cfg=attCourseCfg();
+
+  const fmtT=ts=>
+    new Date(ts).toLocaleTimeString('ar-SA',{hour:'2-digit',minute:'2-digit'});
+  const fmtD=d=>
+    new Date(d+'T12:00:00').toLocaleDateString('ar-SA',{weekday:'long',day:'numeric',month:'long'});
+
+  return panel(
+    'تحضيري',
+
+    `
+    <div class="notice">
+      بصمة الحضور اليومية: اضغط الزر عند وصولك. يُسجَّل وقت الحضور
+      بدقة ويُقارن ببداية المحاضرة (${esc(cfg.startTime)}):
+      حاضر حتى ${attLimit(cfg.graceMinutes)}،
+      متأخر حتى ${attLimit(cfg.absentAfterMinutes)}، وبعدها يُحسب غائبًا.
+    </div>
+
+    <div class="card-inner" style="text-align:center;padding:26px 16px;">
+      ${
+        rec
+        ? `
+          <div style="color:var(--green);">${icon('checkCircle',42)}</div>
+          <h3 style="margin:8px 0 4px;">تم تسجيل حضورك اليوم</h3>
+          <div class="hint">
+            الساعة ${fmtT(rec.ts)} —
+            <b class="${attStatus(rec)==='حاضر'?'':'warn'}">${attStatus(rec)}</b>
+          </div>
+        `
+        : `
+          <button class="btn btn-primary" style="font-size:17px;padding:16px 34px;"
+            onclick="teacherCheckIn()">
+            ${icon('hand',20)} تسجيل الحضور الآن
+          </button>
+          <div class="hint" style="margin-top:10px;">
+            تُسجَّل بصمة واحدة فقط لكل يوم.
+          </div>
+        `
+      }
+    </div>
+
+    <div class="card-inner" style="margin-top:14px;">
+      <h3>سجل حضوري</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>اليوم</th><th>وقت البصمة</th><th>الحالة</th></tr></thead>
+          <tbody>
+            ${
+              mine.length
+              ? mine.map(r=>`
+                  <tr>
+                    <td>${fmtD(r.date)}</td>
+                    <td>${fmtT(r.ts)}</td>
+                    <td><span class="status-badge ${attBadge(attStatus(r))}">${attStatus(r)}</span></td>
+                  </tr>`).join('')
+              : '<tr><td colspan="3">لا توجد بصمات مسجلة بعد.</td></tr>'
+            }
+          </tbody>
+        </table>
+      </div>
+    </div>
+    `
+  );
+}
+
+function renderEvAttendance(){
+
+  const cfg=attCourseCfg();
+  const c=DATA.evalSettings.course||{};
+  const teachers=DATA.teachers.filter(t=>
+    DATA.rooms.some(r=>r.teacherId===t.id)
+  );
+
+  const fmtT=ts=>
+    new Date(ts).toLocaleTimeString('ar-SA',{hour:'2-digit',minute:'2-digit'});
+  const fmtD=d=>
+    new Date(d+'T12:00:00').toLocaleDateString('ar-SA',{weekday:'long',day:'numeric',month:'long'});
+
+  const rows=(DATA.attendance||[])
+    .slice()
+    .sort((a,b)=>b.ts.localeCompare(a.ts))
+    .slice(0,60);
+
+  const summary=t=>{
+    const mine=(DATA.attendance||[]).filter(r=>r.teacherId===t.id);
+    const onTime=mine.filter(r=>attStatus(r)==='حاضر').length;
+    const late=mine.filter(r=>attStatus(r)==='متأخر').length;
+    const absent=mine.filter(r=>attStatus(r)==='غائب').length+attNoShowDays(t.id);
+    return {onTime, late, absent, days:mine.length};
+  };
+
+  return panel(
+    'الحضور والبصمة',
+
+    `
+    <div class="notice">
+      بصمة حضور المعلمين اليومية. الحالة تُحسب من وقت بداية المحاضرة:
+      حاضر خلال دقائق السماح، ثم متأخر حتى حد الغياب، وبعدها غائب.
+      أيام الدورة بلا بصمة تُحسب غيابًا (عدا الجمعة والسبت).
+      وتُغذي معياري «الحضور المبكر والتأخر»
+      و«الالتزام بمواعيد المحاضرات» في التقييم الأسبوعي.
+    </div>
+
+    <div class="card-inner" style="margin-bottom:14px;">
+      <h3>إعداد المحاضرة</h3>
+      <div class="form-grid">
+        <div class="field">
+          <label class="modal-label">وقت بداية المحاضرة</label>
+          <input class="input" type="time" value="${esc(cfg.startTime)}"
+            onchange="evCourseSet('startTime',this.value)">
+        </div>
+        <div class="field">
+          <label class="modal-label">دقائق السماح قبل الاحتساب متأخرًا</label>
+          <input class="input" type="number" min="0" value="${cfg.graceMinutes}"
+            onchange="evCourseSet('graceMinutes',Number(this.value)||0)">
+        </div>
+        <div class="field">
+          <label class="modal-label">يُحسب غائبًا بعد (دقيقة من بداية المحاضرة)</label>
+          <input class="input" type="number" min="0" value="${cfg.absentAfterMinutes}"
+            onchange="evCourseSet('absentAfterMinutes',Number(this.value)||0)">
+        </div>
+        <div class="field">
+          <label class="modal-label">تاريخ بداية الدورة</label>
+          <input class="input" type="date" value="${esc(cfg.startDate)}"
+            onchange="evCourseSet('startDate',this.value)">
+        </div>
+      </div>
+    </div>
+
+    <div class="card-inner" style="margin-bottom:14px;">
+      <h3>ملخص لكل معلم</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>المعلم</th><th>حاضر</th><th>متأخر</th><th>غائب</th><th>أيام البصمات</th></tr></thead>
+          <tbody>
+            ${
+              teachers.map(t=>{
+                const sm=summary(t);
+                return `
+                  <tr>
+                    <td class="nm">${esc(t.name)}</td>
+                    <td>${sm.onTime}</td>
+                    <td>${sm.late}</td>
+                    <td>${sm.absent}</td>
+                    <td>${sm.days}</td>
+                  </tr>`;
+              }).join('') || '<tr><td colspan="5">لا يوجد معلمون بعد.</td></tr>'
+            }
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card-inner">
+      <h3>سجل البصمات</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>اليوم</th><th>المعلم</th><th>وقت البصمة</th><th>الحالة</th></tr></thead>
+          <tbody>
+            ${
+              rows.length
+              ? rows.map(r=>`
+                  <tr>
+                    <td>${fmtD(r.date)}</td>
+                    <td class="nm">${esc(getTeacher(r.teacherId)?.name||'—')}</td>
+                    <td>${fmtT(r.ts)}</td>
+                    <td><span class="status-badge ${attBadge(attStatus(r))}">${attStatus(r)}</span></td>
+                  </tr>`).join('')
+              : '<tr><td colspan="4">لا توجد بصمات مسجلة بعد.</td></tr>'
+            }
+          </tbody>
+        </table>
+      </div>
+    </div>
+    `
+  );
+}
+
+function evCourseSet(key,val){
+  if(!DATA.evalSettings.course) DATA.evalSettings.course={};
+  DATA.evalSettings.course[key]=val;
+  evQueueSave('course');
+}
+
 /* ---------- تحميل وحفظ الإعدادات ---------- */
 
 async function loadEvalData(){
 
   DATA.teacherScores=[];
+  DATA.attendance=[];
   DATA.evalSettings=evEmptySettings();
 
   const isAdmin=
     currentAdmin || currentProfile?.role==='admin';
 
-  if(!isAdmin) return;
+  if(!isAdmin && !currentTeacherId) return;
 
   try{
 
@@ -1930,6 +2307,10 @@ async function loadEvalData(){
       if(r.key==='cert')         DATA.evalSettings.cert=r.value;
       if(r.key==='report')       DATA.evalSettings.report=r.value;
       if(r.key==='report_notes') DATA.evalSettings.reportNotes=r.value||{};
+      if(r.key==='week_types')   DATA.evalSettings.weekTypes=r.value||{};
+      if(r.key==='course_evals') DATA.evalSettings.courseEvals=r.value||{};
+      if(r.key==='attendance')   DATA.attendance=r.value||[];
+      if(r.key==='employee_short_names') DATA.evalSettings.employeeShortNames=r.value||{};
     });
 
   }catch(e){
@@ -1954,7 +2335,11 @@ async function evSaveSetting(key){
     criteria:s.criteria,
     cert:s.cert,
     report:s.report,
-    report_notes:s.reportNotes
+    report_notes:s.reportNotes,
+    week_types:s.weekTypes,
+    course_evals:s.courseEvals,
+    employee_short_names:s.employeeShortNames,
+    attendance:DATA.attendance
   };
 
   try{
@@ -2162,14 +2547,16 @@ function renderAdminTeacherEval(){
 
   const tabs=[
     ['score','التقييم الأسبوعي'],
+    ['attend','الحضور والبصمة'],
     ['board','لوحة المتصدّرين'],
-    ['report','📄 التقرير الأسبوعي'],
-    ['cert','🎖️ الشهادات'],
+    ['report',icon('file')+' التقرير الأسبوعي'],
+    ['cert',icon('medal')+' الشهادات'],
     ['deduct','الخصومات']
   ];
 
   const bodies={
     score:renderEvScore,
+    attend:renderEvAttendance,
     board:renderEvBoard,
     report:renderEvReport,
     cert:renderEvCert,
@@ -2343,7 +2730,7 @@ function renderEvCritEditor(){
     <div class="cert-editor open">
 
       <div class="cert-editor__head">
-        <h3>✏️ معايير التقييم</h3>
+        <h3>${icon('edit')} معايير التقييم</h3>
         <span class="muted small">التغييرات تُحفظ تلقائيًا وتنعكس على الجدول والتقرير مباشرة</span>
       </div>
 
@@ -2382,7 +2769,7 @@ function renderEvCritEditor(){
             type="button"
             class="btn danger small"
             onclick="evCritDelete(${i})">
-            🗑️ حذف
+            ${icon('trash')} حذف
           </button>
 
         </div>
@@ -2402,7 +2789,7 @@ function renderEvCritEditor(){
           type="button"
           class="btn ghost small"
           onclick="evCritReset()">
-          ↺ استرجاع المعايير الأصلية
+          ${icon('refresh')} استرجاع المعايير الأصلية
         </button>
 
         <button
@@ -2564,6 +2951,17 @@ function renderEvScore(){
             onchange="evSetCourse('weeks',this.value)">
         </label>
 
+        <label class="field">
+          <span class="modal-label">نوع تقييم الأسبوع ${evWeek}</span>
+          <select
+            class="input"
+            onchange="evWeekType(this.value)">
+            ${['تقييم دورة','متابعة مستمرة'].map(o=>`
+              <option value="${o}" ${((DATA.evalSettings.weekTypes||{})[evWeek]||'تقييم دورة')===o?'selected':''}>${o}</option>
+            `).join('')}
+          </select>
+        </label>
+
       </div>
 
     </div>
@@ -2584,11 +2982,11 @@ function renderEvScore(){
       <button
         class="btn ghost small"
         onclick="evCritEditorOpen=!evCritEditorOpen;renderAdmin()">
-        ✏️ تعديل معايير التقييم
+        ${icon('edit')} تعديل معايير التقييم
       </button>
 
       <label class="btn ghost small" style="cursor:pointer;">
-        ⭱ استيراد من Excel (المنصة القديمة)
+        ${icon('upload')} استيراد من Excel (المنصة القديمة)
         <input
           type="file"
           accept=".xlsx,.xls"
@@ -2711,7 +3109,7 @@ function evWinnerCard(label,item){
 
     return `
       <div class="winner-card empty">
-        <span class="medal">🏆</span>
+        <span class="medal">${icon('trophy',30)}</span>
         <span class="label">${label}</span>
         <div class="name">— لا توجد نتائج بعد —</div>
       </div>
@@ -2720,7 +3118,7 @@ function evWinnerCard(label,item){
 
   return `
     <div class="winner-card">
-      <span class="medal">🏆</span>
+      <span class="medal">${icon('trophy',30)}</span>
       <span class="label">${label}</span>
       <div class="name">${esc(item.t.name)}</div>
       <span class="pts">${item.total} نقطة</span>
@@ -2893,7 +3291,7 @@ const EV_DEFAULT_REPORT = {
   dateText:'',
 
   showIntro:true,
-  toName:'سعادة المدير التنفيذي / د. بدر هديبان الحربي — حفظه الله',
+  toName:'سعادة مدير الأكاديمية / د. بدر هديبان الحربي — حفظه الله',
   intro:'السلام عليكم ورحمة الله وبركاته، وبعد:\nنرفع لسعادتكم التقرير الأسبوعي لتقييم أداء المعلمين والمعلّمات في برنامج «تعلّم العربية» عن الأسبوع ({الأسبوع})، وفيما يلي بيان التقييمات:',
 
   colIndex:'م', colName:'الاسم', colGender:'الفئة',
@@ -2913,7 +3311,7 @@ const EV_DEFAULT_REPORT = {
   prepLabel:'إعداد التقرير',
   prepName:'',
   showApprove:true,
-  approveLabel:'الاعتماد — المدير التنفيذي',
+  approveLabel:'الاعتماد — مدير الأكاديمية',
   approveName:'د. بدر هديبان الحربي'
 };
 
@@ -3314,19 +3712,19 @@ function renderEvReport(){
       <button
         class="btn ghost small"
         onclick="evToggleReportEditor()">
-        ✏️ تعديل التقرير
+        ${icon('edit')} تعديل التقرير
       </button>
 
       <button
         class="btn primary small"
         onclick="evPrintReport()">
-        🖨️ طباعة / حفظ PDF
+        ${icon('printer')} طباعة / حفظ PDF
       </button>
 
       <button
         class="btn secondary small"
         onclick="evSendReportToCeo()">
-        📤 إرسال للرئيس التنفيذي
+        ${icon('send')} إرسال لمدير الأكاديمية
       </button>
 
     </div>
@@ -3342,12 +3740,12 @@ function renderEvReport(){
 
       <div class="side-editor__head">
 
-        <h3>✏️ تعديل التقرير</h3>
+        <h3>${icon('edit')} تعديل التقرير</h3>
 
         <button
           class="week-arrow"
           onclick="evToggleReportEditor(false)"
-          title="إغلاق">✕</button>
+          title="إغلاق">${icon('x',13)}</button>
 
       </div>
 
@@ -3369,7 +3767,7 @@ function renderEvReport(){
         <button
           class="btn ghost small"
           onclick="evResetReport()">
-          ↺ استرجاع الأصل
+          ${icon('refresh')} استرجاع الأصل
         </button>
 
         <button
@@ -3536,7 +3934,7 @@ const EV_DEFAULT_CERT = {
   titleF:'الأستاذة',
   bodyM:'وذلك تقديرًا لجهوده المتميّزة وعطائه المخلص، وتفوّق أدائه التعليمي والتزامه وابتكاره خلال «{الدورة}»، حيث نال المركز الأول كأفضل معلم بمجموع {النقاط} نقطة.\nسائلين المولى عزّ وجلّ له دوام التوفيق والسداد، وأن يجعل ذلك في ميزان حسناته.',
   bodyF:'وذلك تقديرًا لجهودها المتميّزة وعطائها المخلص، وتفوّق أدائها التعليمي والتزامها وابتكارها خلال «{الدورة}»، حيث نالت المركز الأول كأفضل معلمة بمجموع {النقاط} نقطة.\nسائلين المولى عزّ وجلّ لها دوام التوفيق والسداد، وأن يجعل ذلك في ميزان حسناتها.',
-  signTitle:'المدير التنفيذي',
+  signTitle:'مدير الأكاديمية',
   signName:'د. بدر هديبان الحربي',
   dateLabel:'التاريخ',
   dateText:''
@@ -3647,13 +4045,13 @@ function renderEvCert(){
 
         ${
           bestM
-          ? `<option value="${bestM.t.id}" ${teacher.id===bestM.t.id?'selected':''}>🏆 أفضل معلم: ${esc(bestM.t.name)}</option>`
+          ? `<option value="${bestM.t.id}" ${teacher.id===bestM.t.id?'selected':''}>أفضل معلم: ${esc(bestM.t.name)}</option>`
           : ''
         }
 
         ${
           bestF
-          ? `<option value="${bestF.t.id}">🏆 أفضل معلمة: ${esc(bestF.t.name)}</option>`
+          ? `<option value="${bestF.t.id}">أفضل معلمة: ${esc(bestF.t.name)}</option>`
           : ''
         }
 
@@ -3672,13 +4070,13 @@ function renderEvCert(){
       <button
         class="btn ghost small"
         onclick="evCertEditorOpen=!evCertEditorOpen;renderAdmin()">
-        ✏️ تعديل صياغة الشهادة
+        ${icon('edit')} تعديل صياغة الشهادة
       </button>
 
       <button
         class="btn primary small"
         onclick="evPrintCert()">
-        🖨️ طباعة / حفظ PDF
+        ${icon('printer')} طباعة / حفظ PDF
       </button>
 
     </div>
@@ -3689,7 +4087,7 @@ function renderEvCert(){
         <div class="cert-editor open">
 
           <div class="cert-editor__head">
-            <h3>✏️ تعديل صياغة الشهادة</h3>
+            <h3>${icon('edit')} تعديل صياغة الشهادة</h3>
             <span class="muted small">التعديلات تُحفظ تلقائيًا وتظهر في الشهادة مباشرة</span>
           </div>
 
@@ -3723,7 +4121,7 @@ function renderEvCert(){
             <button
               class="btn ghost small"
               onclick="evResetCert()">
-              ↺ استرجاع الصياغة الأصلية
+              ${icon('refresh')} استرجاع الصياغة الأصلية
             </button>
 
             <button
@@ -3820,7 +4218,7 @@ function renderEvDeductions(){
     </div>
 
     <div class="toolbar">
-      <button class="btn ghost small" onclick="exportDeductionsExcel()">⭳ تصدير كل الخصومات Excel</button>
+      <button class="btn ghost small" onclick="exportDeductionsExcel()">${icon('download')} تصدير كل الخصومات Excel</button>
     </div>
 
     ${renderTeacherDeductions(evDeductTeacher)}
@@ -4635,7 +5033,7 @@ function renderAdminReports(){
                   <button
                     class="btn ${r.sentToCeo?'ghost':'secondary'} small"
                     onclick="toggleReportCeo('${r.id}')">
-                    ${r.sentToCeo?'✓ مُرسل للرئيس — إلغاء':'📤 إرسال للرئيس'}
+                    ${r.sentToCeo?icon('check')+' مُرسل لمدير الأكاديمية — إلغاء':icon('send')+' إرسال لمدير الأكاديمية'}
                   </button>
                   <button class="btn ghost small" onclick="editReport('${r.id}')">تعديل</button>
 <button
@@ -4938,7 +5336,7 @@ function renderAdminChampion(){
             ranked[0]
             ? `
               <div class="champion-result">
-                🏆 الطالب المتميز:
+                ${icon('trophy')} الطالب المتميز:
                 ${esc(ranked[0].student.name)}
                 — ${ranked[0].average}%
               </div>
@@ -5023,7 +5421,7 @@ function renderAdminExport(){
 
       <div class="export-buttons">
 
-        <button class="btn primary" onclick="exportAllExcel()">📊 تصدير جميع البيانات</button>
+        <button class="btn primary" onclick="exportAllExcel()">${icon('chart')} تصدير جميع البيانات</button>
         <button class="btn secondary" onclick="exportRoomsExcel()">القاعات والدورات</button>
         <button class="btn secondary" onclick="exportTeachersListExcel()">المعلمون</button>
         <button class="btn secondary" onclick="exportTeachersExcel()">تقييم المعلمين</button>
@@ -5032,11 +5430,196 @@ function renderAdminExport(){
         <button class="btn secondary" onclick="exportAnnouncementsExcel()">الإعلانات</button>
         <button class="btn secondary" onclick="exportDeductionsExcel()">خصومات المعلمين</button>
         <button class="btn secondary" onclick="exportTasksExcel('all')">المهام والموظفون</button>
+        <button class="btn secondary" onclick="openNarrativeModal()">${icon('file')} تقرير الدورة النصي</button>
 
       </div>
 
     </div>
     `
+  );
+}
+
+/* ---------- تقرير الدورة النصي ---------- */
+
+function openNarrativeModal(){
+
+  if(!DATA.groups.length){
+
+    toast('لا توجد مجموعات بعد.',true);
+    return;
+  }
+
+  openEditModal({
+    title:icon('file')+' تقرير الدورة النصي',
+    fields:[
+      {key:'groupId',label:'المجموعة',type:'select',
+        value:DATA.groups[0].id,
+        options:DATA.groups.map(g=>({value:g.id,label:g.name}))},
+      {key:'reco',label:'التوصيات الختامية (كل توصية في سطر)',type:'textarea',
+        value:'الاستمرار في متابعة تنفيذ المهام قبل انطلاق الدورة بوقت كافٍ.\nتعزيز التنسيق بين المعلمين والمشرف العام أثناء انعقاد الدورة.\nتوثيق الملاحظات أولًا بأول لرفعها في التقرير الختامي.'}
+    ],
+    onSave:async v=>{
+      const built=buildNarrativeParas(v.groupId,v.reco);
+      if(!built) return;
+      setTimeout(()=>openEditModal({
+        title:icon('edit')+' تحرير نص التقرير قبل التصدير',
+        fields:[
+          {key:'body',label:'نص التقرير (كل فقرة في سطر)',type:'textarea',rows:14,
+            value:built.paras.join('\n')}
+        ],
+        saveLabel:icon('file')+' تصدير PDF',
+        onSave:async v2=>{
+          printNarrative(v.groupId,v.reco,v2.body);
+        }
+      }),0);
+    }
+  });
+}
+
+function buildNarrativeParas(groupId,reco){
+
+  const g=getGroup(groupId);
+  if(!g) return null;
+
+  const gtasks=groupTasks(groupId);
+  const AR_D='٠١٢٣٤٥٦٧٨٩';
+  const toAr=n=>String(n).replace(/\d/g,d=>AR_D[+d]);
+  const toEn=s=>String(s).replace(/[٠-٩]/g,d=>AR_D.indexOf(d));
+  const MONTHS=['يناير','فبراير','مارس','أبريل','مايو','يونيو','يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر'];
+  const DAYS=['الأحد','الاثنين','الثلاثاء','الأربعاء','الخميس','الجمعة','السبت'];
+
+  const desc=g.description||'';
+  const mNames=MONTHS.join('|');
+  const dm=desc.match(new RegExp('([٠-٩\\d]+)(?:\\s*('+mNames+'))?\\s*[–-]\\s*([٠-٩\\d]+)\\s*('+mNames+')'));
+  let dateSentence='';
+  if(dm){
+    const nowY=new Date().getFullYear();
+    const nowM=new Date().getMonth()+1;
+    const m1i=dm[2]?MONTHS.indexOf(dm[2])+1:MONTHS.indexOf(dm[4])+1;
+    const m2i=MONTHS.indexOf(dm[4])+1;
+    const y1=m1i<nowM?nowY+1:nowY;
+    const y2=m2i<nowM?nowY+1:nowY;
+    const d1=new Date(y1,m1i-1,Number(toEn(dm[1])));
+    const d2=new Date(y2,m2i-1,Number(toEn(dm[3])));
+    dateSentence=
+      'انطلقت يوم '+DAYS[d1.getDay()]+' '+dm[1]+' '+(dm[2]||dm[4])+' '+toAr(d1.getFullYear())+'م'+
+      '، واختتمت يوم '+DAYS[d2.getDay()]+' '+dm[3]+' '+dm[4]+' '+toAr(d2.getFullYear())+'م';
+  }
+  const studPart=(desc.split('·')[1]||'').trim();
+  if(studPart) dateSentence+=(dateSentence?'، ':'')+'بمشاركة '+studPart+'.';
+  else if(dateSentence) dateSentence+='.';
+
+  const roomsByName={};
+  DATA.rooms.filter(r=>r.groupName===g.name).forEach(r=>{
+    (roomsByName[r.name]=roomsByName[r.name]||[]).push(r);
+  });
+  const roomNames=Object.keys(roomsByName);
+  let teachersPara='';
+  if(roomNames.length){
+    const parts=roomNames.map(name=>{
+      const ts=roomsByName[name]
+        .map(r=>r.teacherId?getTeacher(r.teacherId):null)
+        .filter(Boolean);
+      if(!ts.length) return 'قاعة «'+name+'» (لم يُسنَد معلم بعد)';
+      const female=ts.every(t=>t.gender==='f');
+      const label=ts.length>1?(female?'المعلمتين':'المعلمين'):(female?'المعلمة':'المعلم');
+      const names=ts.map(t=>t.name).join(ts.length>2?'، ':' و').replace(/، ([^،]+)$/,'، و$1');
+      const total=roomsByName[name].reduce((a,r)=>a+DATA.students.filter(s=>s.roomId===r.id).length,0);
+      return 'قاعة «'+name+'» بقيادة '+label+' '+names+(total?' وعدد طلابها '+toAr(total):'');
+    });
+    teachersPara='وأُسندت إدارة القاعات إلى نخبة من الكفاءات، فكانت '+parts.join('، و')+'.';
+  }
+
+  const phaseTitles=ph=>
+    gtasks
+      .filter(t=>taskPhase(t)===ph)
+      .map(t=>t.title.replace(/^([123١-٣])\s*[·.]\s*[^—\-]+[—\-]\s*/,''))
+      .filter(Boolean);
+
+  const cleanItem=s=>String(s).replace(/[\s.:؛،]+$/,'');
+  const joinAr=items=>
+    items.length>1
+    ? items.slice(0,-1).join('، ')+'، و'+items[items.length-1]
+    : items[0];
+
+  const prose=(intro,list)=>{
+    list=list.map(cleanItem).filter(Boolean);
+    if(!list.length) return '';
+    if(list.length>6){
+      const half=Math.ceil(list.length/2);
+      return intro+joinAr(list.slice(0,half))+'. كما جرى '+joinAr(list.slice(half))+'.';
+    }
+    return intro+joinAr(list)+'.';
+  };
+
+  const prep=prose('وفي مرحلة الإعداد، جرى ',phaseTitles('قبل الدورة'));
+  const during=prose('وخلال أيام الدورة، تابع فريق العمل ',phaseTitles('أثناء الدورة'));
+  const closing=prose('وفي الختام، ',phaseTitles('بعد الدورة'));
+
+  const notes=
+    gtasks.map(t=>splitTaskDesc(t).adminNote).filter(Boolean);
+  const notesPara=
+    notes.length
+    ? 'ومن أبرز ما وجّه إليه المشرف العام خلال سير العمل: '+joinAr(notes.map(cleanItem))+'.'
+    : '';
+
+  const doneCnt=gtasks.filter(t=>t.status==='done').length;
+  const statsPara=
+    gtasks.length
+    ? 'هذا، وقد بلغ عدد مهام الدورة '+toAr(gtasks.length)+' مهمة، أُنجز منها '+toAr(doneCnt)+' بنسبة '+toAr(donePercent(gtasks))+'٪.'
+    : '';
+
+  const recoList=(reco||'').split('\n').map(x=>x.trim()).filter(Boolean);
+  const recoPara=
+    recoList.length
+    ? 'وفي الختام، نرفع بالتوصيات التالية: '+joinAr(recoList.map(cleanItem))+'.'
+    : '';
+
+  const paras=[
+    'الحمد لله رب العالمين، وبعد: '+(dateSentence||('انعقدت دورة «'+g.name+'» ضمن برنامج تعلّم العربية.')),
+    teachersPara, prep, during, closing, statsPara, notesPara, recoPara,
+    'هذا والحمد لله الذي بنعمته تتم الصالحات.'
+  ].filter(Boolean);
+
+  return {g, paras};
+}
+
+function printNarrative(groupId,reco,customText){
+
+  const built=buildNarrativeParas(groupId,reco);
+  if(!built) return;
+  const {g}=built;
+  const paras=
+    customText!=null
+    ? String(customText).split(/\n+/).map(x=>x.trim()).filter(Boolean)
+    : built.paras;
+
+  const html=`
+    <div class="report" dir="rtl" style="background:#fff;color:#111;padding:30px 34px;font-family:'Tajawal','Cairo',sans-serif;line-height:2.1;font-size:15px;">
+
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <img src="assets/Arabic_logo.png" style="height:74px;" alt="">
+        <img src="assets/logo-saqifah.png" style="height:74px;" alt="">
+      </div>
+
+      <p style="text-align:center;font-size:20px;font-weight:700;margin:16px 0 4px;">بسم الله الرحمن الرحيم</p>
+
+      <h2 style="text-align:center;margin:6px 0 2px;">تقرير دورة «${esc(g.name)}»</h2>
+      <p style="text-align:center;color:#555;margin:0 0 18px;">برنامج تعلّم العربية — السقيفة</p>
+
+      <p>السلام عليكم ورحمة الله وبركاته، وبعد:</p>
+
+      ${paras.map(p=>`<p>${esc(p)}</p>`).join('\n      ')}
+
+      <p style="text-align:left;font-weight:800;margin-top:26px;">مدير الأكاديمية</p>
+
+    </div>
+  `;
+
+  evPrint(
+    'report',
+    'تقرير دورة '+g.name,
+    html
   );
 }
 
@@ -5424,6 +6007,10 @@ function renderTeacher(){
 
     reports:renderTeacherReports,
 
+    evals:renderTeacherEvals,
+
+    attend:renderTeacherAttendance,
+
     announce:renderTeacherAnnouncements,
 
     settings:renderTeacherSettings
@@ -5433,6 +6020,147 @@ function renderTeacher(){
   m.innerHTML=
     views[teacherTab]();
 
+}
+
+/* ---------- تقييماتي (المعلم يطّلع على تقييمه) ---------- */
+
+function evWeekType(v){
+
+  DATA.evalSettings.weekTypes=DATA.evalSettings.weekTypes||{};
+  DATA.evalSettings.weekTypes[evWeek]=v;
+  evQueueSave('week_types');
+  toast('تم تحديد نوع التقييم');
+}
+
+const EV_RUBRIC_DEFAULT=
+  'الدرجة من 5: 0 = لم يُنفَّذ · 1.5–3 = دون المطلوب · 2.5–4 = جيد · 3.5–5 = ممتاز (الكم 60٪ + الجودة 40٪، والمطلوب 3 عناصر في الأسبوع للدرجة الكاملة)';
+const EV_RUBRIC_ATTEND=
+  'الحضور في الموعد = 1 · التأخر = 0.5 · الغياب = 0 (تُحسب من بيانات الحضور عند توفرها)';
+
+function renderTeacherEvals(){
+
+  const t=getTeacher(currentTeacherId);
+  const crit=evCriteria();
+  const weeks=evCourseWeeks();
+  const rows=
+    DATA.teacherScores
+      .filter(r=>r.teacherId===currentTeacherId)
+      .sort((a,b)=>a.week-b.week);
+
+  const weekCards=
+    rows.length
+    ? rows.map(r=>{
+
+        const total=
+          crit.reduce((s,c)=>s+(Number(r.scores?.[c.key])||0),0);
+        const maxTotal=
+          crit.reduce((s,c)=>s+(c.max||10),0);
+        const pct=maxTotal?Math.round(total/maxTotal*100):0;
+        const wtype=(DATA.evalSettings.weekTypes||{})[r.week]||'تقييم دورة';
+
+        return `
+          <div class="card-inner" style="margin-bottom:14px;">
+
+            <h3 style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+              الأسبوع ${r.week}
+              <span class="assignee-tag" style="background:#ede9fe;color:#5b21b6;">${esc(wtype)}</span>
+              <span style="margin-inline-start:auto;font-size:14px;color:#6b7280;">
+                المجموع: ${total} من ${maxTotal} (${pct}٪)
+              </span>
+            </h3>
+
+            <details style="margin-bottom:10px;">
+              <summary style="cursor:pointer;font-weight:700;">كيف تُحسب الدرجات؟</summary>
+              <div class="hint" style="text-align:right;margin-top:6px;line-height:1.9;">
+                ${EV_RUBRIC_DEFAULT}<br>
+                معيار الحضور: ${EV_RUBRIC_ATTEND}
+              </div>
+            </details>
+
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>المعيار</th>
+                    <th>الدرجة</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${crit.map(c=>{
+                    const v=Number(r.scores?.[c.key])||0;
+                    return `
+                      <tr>
+                        <td><b>${esc(c.label)}</b></td>
+                        <td>${v} من ${c.max||10}</td>
+                        <td style="color:#f59e0b;">${stars(v/((c.max||10)/5))}</td>
+                      </tr>
+                    `;
+                  }).join('')}
+                </tbody>
+              </table>
+            </div>
+
+          </div>
+        `;
+      }).join('')
+    : `
+      <div class="empty">
+        لم تُسجَّل تقييمات لك بعد. عند اعتماد الإدارة للتقييم
+        الأسبوعي ستظهر نتائجك هنا.
+      </div>
+    `;
+
+  return panel(
+    'تقييماتي',
+
+    `
+    <div class="notice">
+      ${esc(evCourseName())} · مدة الدورة ${weeks} أسبوعًا.
+      هذه نتائج تقييمك كما اعتمدتها الإدارة.
+    </div>
+
+    ${weekCards}
+
+    <div class="card-inner" style="margin-top:14px;">
+      <h3>تقييمي للدورة</h3>
+      <div class="hint" style="text-align:right;margin-bottom:8px;">
+        مساحة حرة تكتب فيها تقييمك الكامل للدورة: سير العمل، الطلاب،
+        التنظيم، وأي ملاحظات أو مقترحات تود إيصالها للإدارة.
+      </div>
+      <textarea id="courseEvalText" rows="5"
+        style="width:100%;"
+        placeholder="اكتب تقييمك للدورة هنا...">${esc((DATA.evalSettings.courseEvals||{})[currentTeacherId]||'')}</textarea>
+      <div style="margin-top:8px;">
+        <button class="btn btn-primary" onclick="saveTeacherCourseEval()">حفظ التقييم</button>
+      </div>
+    </div>
+    `
+  );
+}
+
+async function saveTeacherCourseEval(){
+
+  const el=document.getElementById('courseEvalText');
+  if(!el) return;
+
+  if(!DATA.evalSettings.courseEvals) DATA.evalSettings.courseEvals={};
+  DATA.evalSettings.courseEvals[currentTeacherId]=el.value.trim();
+
+  try{
+    await sb(
+      db()
+      .from('app_settings')
+      .upsert({
+        key:'course_evals',
+        value:DATA.evalSettings.courseEvals,
+        updated_at:new Date().toISOString()
+      })
+    );
+    toast('تم حفظ تقييمك للدورة.');
+  }catch(e){
+    toast('لم يتم حفظ التقييم — ستتم مراجعته مع الإدارة.', true);
+  }
 }
 
 /* =========================================================
@@ -6196,7 +6924,7 @@ function renderTeacherAnnouncements(){
           class="btn secondary"
           onclick="markAnnouncementsSeen()">
 
-          ✓ تحديد الإعلانات كمقروءة
+          ${icon('check')} تحديد الإعلانات كمقروءة
 
         </button>
       `
@@ -6844,7 +7572,7 @@ function renderAdminDashboardStats(){
     <div class="dashboard-highlight">
 
       <h3>
-        🏆 أفضل الطلاب
+        ${icon('trophy')} أفضل الطلاب
       </h3>
 
       ${
@@ -6875,7 +7603,7 @@ function renderAdminDashboardStats(){
     <div class="dashboard-highlight">
 
       <h3>
-        👨‍🏫 أفضل المعلمين
+        ${icon('users')} أفضل المعلمين
       </h3>
 
       ${
@@ -7193,7 +7921,7 @@ async function boot(){
         }catch(e){
 
           console.warn(
-            'تعذر استعادة جلسة الرئيس التنفيذي:',
+            'تعذر استعادة جلسة مدير الأكاديمية:',
             e
           );
         }
@@ -7465,6 +8193,22 @@ function statusSelect(task){
   `;
 }
 
+function shortName(e){
+
+  if(!e) return '';
+
+  const ov=(DATA.evalSettings.employeeShortNames||{})[e.id];
+  if(ov) return ov;
+
+  const parts=String(e.name||'').trim().split(/\s+/).filter(Boolean);
+  if(parts.length<=2) return parts.join(' ');
+
+  const titled=/^(د\.|أ\.|د|أ)$/.test(parts[0]);
+  if(titled) return parts[0]+' '+parts[1]+' '+parts[parts.length-1];
+
+  return parts[0]+' '+parts[parts.length-1];
+}
+
 function assigneeTags(t){
 
   if(!t.employeeIds.length){
@@ -7479,7 +8223,7 @@ function assigneeTags(t){
 
     return `
       <span class="assignee-tag ${id===currentEmployeeId?'me':''} ${e.isCeo?'ceo':''}">
-        ${e.isCeo?'<span class="ceo-dot"></span>':''}${esc(e.name)}
+        ${e.isCeo?'<span class="ceo-dot"></span>':''}${esc(shortName(e))}
       </span>
     `;
 
@@ -7667,7 +8411,7 @@ function renderStaffHome(isAdmin){
           <div
             class="group-tile add"
             onclick="openGroupModal()">
-            ＋ إضافة مجموعة
+            ${icon('plus')} إضافة مجموعة
           </div>
         `
         : ''
@@ -7692,7 +8436,7 @@ function renderStaffHome(isAdmin){
               <button
                 class="btn ghost"
                 onclick="openStaffView('templates')">
-                📋 قالب المهام
+                ${icon('clipboard')} قالب المهام
               </button>
             `
             : ''
@@ -7701,13 +8445,13 @@ function renderStaffHome(isAdmin){
           <button
             class="btn primary"
             onclick="printTasksReport('all')">
-            📄 تقرير شامل (PDF)
+            ${icon('file')} تقرير شامل (PDF)
           </button>
 
           <button
             class="btn secondary"
             onclick="exportTasksExcel('all')">
-            ⭳ تصدير Excel
+            ${icon('download')} تصدير Excel
           </button>
 
         </div>
@@ -7764,7 +8508,7 @@ function renderStaffHome(isAdmin){
 
           <div class="notice">
             الحذف نهائي ولا يمكن التراجع عنه. لحذف بيانات المنصة كلها
-            (طلاب، تقييمات، تقارير...) استخدم "الإعدادات ← حذف البيانات القديمة".
+            (طلاب، تقييمات، تقارير...) استخدم "الإعدادات" ثم "حذف البيانات القديمة".
           </div>
 
           <div class="export-buttons" style="justify-content:flex-start;margin-top:0;">
@@ -7857,7 +8601,7 @@ function renderStaffBoard(isAdmin){
       <button
         class="btn ghost small"
         onclick="openStaffView('home')">
-        ← رجوع للمجموعات
+        ${icon('back')} رجوع للمجموعات
       </button>
 
       ${
@@ -7884,13 +8628,13 @@ function renderStaffBoard(isAdmin){
           <button
             class="btn primary small"
             onclick="printTasksReport(${isGeneral?'null':`'${gid}'`})">
-            📄 تقرير المجموعة (PDF)
+            ${icon('file')} تقرير المجموعة (PDF)
           </button>
 
           <button
             class="btn secondary small"
             onclick="exportTasksExcel(${isGeneral?'null':`'${gid}'`})">
-            ⭳ Excel
+            ${icon('download')} Excel
           </button>
         `
         : ''
@@ -7902,13 +8646,13 @@ function renderStaffBoard(isAdmin){
           <button
             class="btn ghost small"
             onclick="applyTemplateToGroup('${gid}')">
-            ＋ مهام القالب
+            ${icon('plus')} مهام القالب
           </button>
 
           <button
             class="btn ghost small"
             onclick="saveGroupAsTemplate('${gid}')">
-            💾 حفظ كقالب
+            ${icon('save')} حفظ كقالب
           </button>
         `
         : ''
@@ -7957,7 +8701,7 @@ function renderStaffBoard(isAdmin){
             type="button"
             class="btn secondary small"
             onclick="openTaskModal()">
-            ＋ إضافة مهمة
+            ${icon('plus')} إضافة مهمة
           </button>
         `
         : ''
@@ -8039,26 +8783,37 @@ function renderStaffBoard(isAdmin){
 
           ${
             tasks.length
-            ? tasks.map(t=>{
+            ? (()=>{
+              const phIdx=t=>{
+                const i=TASK_PHASES.indexOf(taskPhase(t));
+                return i===-1?99:i;
+              };
+              const sorted=[...tasks].sort((a,b)=>phIdx(a)-phIdx(b));
+              let lastPhase;
+              return sorted.map(t=>{
 
                 const mine=
                   !isAdmin &&
                   t.employeeIds.includes(currentEmployeeId);
 
-                return `
+                const ph=taskPhase(t);
+                const phRow=(ph&&ph!==lastPhase)
+                  ?`<tr class="phase-row"><td colspan="${isAdmin?7:6}">${icon('folder')} ${ph}</td></tr>`
+                  :'';
+                lastPhase=ph;
+
+                return phRow+`
 
                   <tr class="${mine?'mine-row':''}">
 
                     <td>
-                      <b>${esc(t.title)}</b>
-                      ${
-                        t.description
-                        ? `<div class="hint" style="text-align:right;margin-top:4px;white-space:pre-wrap;">${esc(t.description)}</div>`
-                        : ''
-                      }
+                      <b>${esc(taskDisplayTitle(t))}</b>
+                      ${(()=>{const sp=splitTaskDesc(t);return sp.desc
+                        ? `<div class="hint" style="text-align:right;margin-top:4px;white-space:pre-wrap;">${esc(sp.desc)}</div>`
+                        : ''})()}
                     </td>
 
-                    <td>
+                    <td class="assignee-cell">
                       ${assigneeTags(t)}
                     </td>
 
@@ -8080,17 +8835,15 @@ function renderStaffBoard(isAdmin){
                     </td>
 
                     <td>
-                      ${
-                        mine
-                        ? `
-                          <input
-                            class="input"
-                            placeholder="ملاحظة (اختياري)"
-                            value="${esc(t.employeeNote)}"
-                            onchange="saveTaskNote('${t.id}',this.value)">
-                        `
-                        : esc(t.employeeNote||'-')
-                      }
+                      ${(()=>{const sp=splitTaskDesc(t);return `
+                        ${!isAdmin&&sp.adminNote?`<div class="admin-note">${icon('pin')} ${esc(sp.adminNote)}</div>`:''}
+                        ${isAdmin?`
+                          <input class="input" placeholder="ملاحظات المدير" value="${esc(sp.adminNote)}" onchange="saveTaskAdminNote('${t.id}',this.value)">
+                          <input class="input" style="margin-top:6px" placeholder="ملاحظة الموظف" value="${esc(t.employeeNote)}" onchange="saveTaskNote('${t.id}',this.value)">
+                        `: mine?`
+                          <input class="input" style="margin-top:6px" placeholder="ملاحظتك (اختياري)" value="${esc(t.employeeNote)}" onchange="saveTaskNote('${t.id}',this.value)">
+                        `: t.employeeNote?`<div class="hint" style="text-align:right;">${esc(t.employeeNote)}</div>`:(sp.adminNote?'':'-')}
+                      `})()}
                     </td>
 
                     ${
@@ -8118,7 +8871,8 @@ function renderStaffBoard(isAdmin){
                   </tr>
 
                 `;
-              }).join('')
+              }).join('');
+            })()
             : `
               <tr>
                 <td colspan="${isAdmin?7:6}">
@@ -8399,7 +9153,7 @@ function openTaskModal(id){
 
     fields:[
       {key:'title',label:'المهمة',value:t?.title||'',required:true},
-      {key:'description',label:'التفاصيل (اختياري)',type:'textarea',value:t?.description||''},
+      {key:'description',label:'التفاصيل (اختياري)',type:'textarea',value:t?splitTaskDesc(t).desc:''},
       {key:'dueDate',label:'تاريخ الاستحقاق',type:'date',value:t?.dueDate||''},
       {key:'status',label:'الحالة',type:'select',value:t?.status||'doing',
         options:TASK_STATUSES.map(s=>({value:s.key,label:s.label}))},
@@ -8417,7 +9171,7 @@ function openTaskModal(id){
 
       const payload={
         title:v.title,
-        description:v.description,
+        description:t?joinTaskDesc(v.description,splitTaskDesc(t).adminNote):v.description,
         due_date:v.dueDate||null,
         status:v.status,
         group_id:v.groupId||null,
@@ -8517,6 +9271,29 @@ async function saveTaskNote(id,note){
       DATA.tasks.map(t=>t.id===id?mapTask(row):t);
 
     toast('تم حفظ الملاحظة');
+
+  }catch(x){
+
+    toast(friendlyError(x),true);
+  }
+}
+
+async function saveTaskAdminNote(id,note){
+
+  try{
+
+    const cur=DATA.tasks.find(t=>t.id===id);
+    const sp=splitTaskDesc(cur);
+
+    const row=await updateRow('tasks',id,{
+      description:joinTaskDesc(sp.desc,note),
+      updated_at:new Date().toISOString()
+    });
+
+    DATA.tasks=
+      DATA.tasks.map(t=>t.id===id?mapTask(row):t);
+
+    toast('تم حفظ ملاحظات المدير');
 
   }catch(x){
 
@@ -8652,7 +9429,7 @@ function renderStaffEmployeesAdmin(){
       <button
         class="btn ghost small"
         onclick="openStaffView('home')">
-        ← رجوع للمجموعات
+        ${icon('back')} رجوع للمجموعات
       </button>
 
     </div>
@@ -8694,7 +9471,7 @@ function renderStaffEmployeesAdmin(){
         <option
           value="1"
           ${hasCeo()?'disabled':''}>
-          الرئيس التنفيذي${hasCeo()?' (موجود)':''}
+          مدير الأكاديمية${hasCeo()?' (موجود)':''}
         </option>
 
       </select>
@@ -8736,7 +9513,7 @@ function renderStaffEmployeesAdmin(){
                 return `
                   <tr>
 
-                    <td>${e.isCeo?'<span class="ceo-dot"></span>':''}${esc(e.name)}${e.isCeo?' <span class="assignee-tag ceo">الرئيس التنفيذي</span>':''}</td>
+                    <td>${e.isCeo?'<span class="ceo-dot"></span>':''}${esc(e.name)}${e.isCeo?' <span class="assignee-tag ceo">مدير الأكاديمية</span>':''}</td>
 
                     <td>${esc(e.jobTitle||'-')}</td>
 
@@ -8806,11 +9583,13 @@ function editEmployee(id){
     fields:[
       {key:'name',label:'الاسم',value:e.name,required:true},
       {key:'jobTitle',label:'المسمى الوظيفي',value:e.jobTitle},
+      {key:'shortName',label:'الاسم المختصر (يظهر في المهام والتقارير)',
+        value:(DATA.evalSettings.employeeShortNames||{})[e.id]||shortName(e)},
       {key:'phone',label:'الجوال',value:e.phone},
       {key:'isCeo',label:'الصفة',type:'select',value:e.isCeo?'1':'0',
         options:[
           {value:'0',label:'موظف'},
-          {value:'1',label:'الرئيس التنفيذي'}
+          {value:'1',label:'مدير الأكاديمية'}
         ]}
     ],
 
@@ -8831,6 +9610,11 @@ function editEmployee(id){
       });
 
       Object.assign(e,mapEmployee(row));
+
+      if(!DATA.evalSettings.employeeShortNames)
+        DATA.evalSettings.employeeShortNames={};
+      DATA.evalSettings.employeeShortNames[e.id]=v.shortName.trim();
+      evSaveSetting('employee_short_names').catch(()=>{});
 
       toast('تم حفظ التعديل');
 
@@ -9048,7 +9832,7 @@ function renderEmployeeNav(){
     'لوحة المهام',
     employeeTab==='tasks',
     "employeeTab='tasks';staffNav.employee.view='home';renderEmployee()"
-  );
+  )+sideCreditHtml();
 }
 
 function renderEmployee(){
@@ -9214,7 +9998,7 @@ function openEditModal(cfg){
           <button
             type="submit"
             class="btn primary">
-            حفظ
+            ${esc(cfg.saveLabel||'حفظ')}
           </button>
 
           <button
@@ -9522,7 +10306,7 @@ function editReport(id){
 }
 
 /* =========================================================
-   الرئيس التنفيذي
+   مدير الأكاديمية
    ========================================================= */
 
 let currentIsCeo = false;
@@ -9563,7 +10347,7 @@ async function loadCeoInbox(){
 
   }catch(e){
 
-    console.warn('تعذر تحميل تقارير الرئيس التنفيذي:',e);
+    console.warn('تعذر تحميل تقارير مدير الأكاديمية:',e);
   }
 }
 
@@ -9623,7 +10407,7 @@ async function ceoCodeLogin(){
   }
 }
 
-/* ---------- لوحة الرئيس التنفيذي ---------- */
+/* ---------- لوحة مدير الأكاديمية ---------- */
 
 function renderCeoSeal(){
 
@@ -9636,15 +10420,15 @@ function renderCeoSeal(){
 
       <div class="ceo-seal">
         <div class="ceo-seal__ring">
-          <span class="ceo-seal__star">★</span>
-          <b>الرئيس التنفيذي</b>
+          <span class="ceo-seal__star">${icon('starFill',20)}</span>
+          <b>مدير الأكاديمية</b>
           <small>تعلّم العربية</small>
         </div>
       </div>
 
       <div>
         <h2>${esc(name)}</h2>
-        <p>الرئيس التنفيذي — برنامج تعلّم العربية · السقيفة</p>
+        <p>مدير الأكاديمية — برنامج تعلّم العربية · السقيفة</p>
       </div>
 
     </div>
@@ -9667,7 +10451,7 @@ function renderCeoNav(){
       'tasks',
       'لوحة المهام',
       ceoTab==='tasks',
-      "ceoTab='tasks';staffNav.employee.view='home';renderCeo()"
+      "ceoTab='tasks'+sideCreditHtml();staffNav.employee.view='home';renderCeo()"
     )+
     navButton(
       'reports',
@@ -9721,13 +10505,13 @@ function renderCeoReports(){
           <button
             class="btn ghost small"
             onclick="ceoViewReportId=null;renderCeo()">
-            ← رجوع للتقارير
+            ${icon('back')} رجوع للتقارير
           </button>
 
           <button
             class="btn primary small"
             onclick="ceoPrintReport('${r.id}')">
-            🖨️ طباعة / حفظ PDF
+            ${icon('printer')} طباعة / حفظ PDF
           </button>
 
         </div>
@@ -9786,7 +10570,7 @@ function renderCeoReports(){
                   <button
                     class="btn ghost small"
                     onclick="ceoPrintReport('${r.id}')">
-                    🖨️ طباعة / PDF
+                    ${icon('printer')} طباعة / PDF
                   </button>
 
                 </div>
@@ -9966,7 +10750,7 @@ function renderEvSentList(){
   return `
     <div class="notice">
 
-      المرسل للرئيس التنفيذي:
+      المُرسل لمدير الأكاديمية:
 
       ${list.map(r=>`
         <span class="assignee-tag">
@@ -9975,7 +10759,7 @@ function renderEvSentList(){
             href="javascript:void(0)"
             style="margin-inline-start:6px;color:var(--red);font-weight:800;"
             onclick="evDeleteCeoReport('${r.id}')"
-            title="إلغاء الإرسال">✕</a>
+            title="إلغاء الإرسال">${icon('x',13)}</a>
         </span>
       `).join('')}
 
@@ -9988,7 +10772,7 @@ async function evSendReportToCeo(){
   if(!hasCeo()){
 
     toast(
-      'أضف الرئيس التنفيذي أولاً من "الموظفون والمهام ← إدارة الموظفين".',
+      'أضف مدير الأكاديمية أولاً من "الموظفون والمهام" ثم "إدارة الموظفين".',
       true
     );
 
@@ -10032,7 +10816,7 @@ async function evSendReportToCeo(){
 
     DATA.ceoReports.unshift(mapCeoReport(row));
 
-    toast('تم إرسال التقرير إلى الرئيس التنفيذي');
+    toast('تم إرسال التقرير إلى مدير الأكاديمية');
 
     renderAdmin();
 
@@ -10047,7 +10831,7 @@ async function evSendReportToCeo(){
 
 async function evDeleteCeoReport(id){
 
-  if(!confirm('إلغاء إرسال هذا التقرير؟ سيختفي من لوحة الرئيس التنفيذي.')) return;
+  if(!confirm('إلغاء إرسال هذا التقرير؟ سيختفي من لوحة مدير الأكاديمية.')) return;
 
   try{
 
@@ -10077,7 +10861,7 @@ async function toggleReportCeo(id){
   if(!r.sentToCeo && !hasCeo()){
 
     toast(
-      'أضف الرئيس التنفيذي أولاً من "الموظفون والمهام ← إدارة الموظفين".',
+      'أضف مدير الأكاديمية أولاً من "الموظفون والمهام" ثم "إدارة الموظفين".',
       true
     );
 
@@ -10094,7 +10878,7 @@ async function toggleReportCeo(id){
 
     toast(
       r.sentToCeo
-        ? 'تم إرسال التقرير إلى الرئيس التنفيذي'
+        ? 'تم إرسال التقرير إلى مدير الأكاديمية'
         : 'تم إلغاء الإرسال'
     );
 
@@ -10234,7 +11018,7 @@ function panel(title,body){
       <h2>${title}</h2>
       ${
         exp
-        ? `<button class="btn ghost small" onclick="${exp}">⭳ تصدير Excel</button>`
+        ? `<button class="btn ghost small" onclick="${exp}">${icon('download')} تصدير Excel</button>`
         : ''
       }
     </div>
@@ -10356,7 +11140,7 @@ function exportReportsExcel(){
       'محتوى التقرير':r.content||'',
       'رابط Google Drive':r.driveLink||'',
       'عدد الصور':r.images?.length||0,
-      'مُرسل للرئيس التنفيذي':r.sentToCeo?'نعم':'لا',
+      'مُرسل لمدير الأكاديمية':r.sentToCeo?'نعم':'لا',
       'التاريخ':r.date?fmtDate(r.date):''
     }))
   },'التقارير-الأسبوعية');
@@ -10389,7 +11173,8 @@ function taskRows(list){
   return list.map(t=>({
     'المجموعة':t.groupId?(getGroup(t.groupId)?.name||''):'مهام عامة',
     'المهمة':t.title,
-    'التفاصيل':t.description,
+    'التفاصيل':splitTaskDesc(t).desc,
+    'ملاحظات المدير':splitTaskDesc(t).adminNote,
     'المسند إليهم':
       t.employeeIds
         .map(id=>getEmployee(id)?.name)
@@ -10424,7 +11209,7 @@ function exportTasksExcel(groupId){
 
         return {
           'الاسم':e.name,
-          'الصفة':e.isCeo?'الرئيس التنفيذي':(e.jobTitle||'موظف'),
+          'الصفة':e.isCeo?'مدير الأكاديمية':(e.jobTitle||'موظف'),
           'عدد المهام':mine.length,
           'تمت':mine.filter(t=>t.status==='done').length,
           'نسبة الإنجاز':donePercent(mine)+'%'
@@ -10474,10 +11259,10 @@ function taskReportTable(tasks){
                 <tr>
                   <td>${i+1}</td>
                   <td class="nm">
-                    ${esc(t.title)}
-                    ${t.description?`<br><small style="font-weight:500;opacity:.75;">${esc(t.description)}</small>`:''}
+                    ${esc(taskDisplayTitle(t))}
+                    ${splitTaskDesc(t).desc?`<br><small style="font-weight:500;opacity:.75;">${esc(splitTaskDesc(t).desc)}</small>`:''}${splitTaskDesc(t).adminNote?`<br><small style="font-weight:700;color:#b91c1c;">ملاحظات المدير: ${esc(splitTaskDesc(t).adminNote)}</small>`:''}
                   </td>
-                  <td>${esc(t.employeeIds.map(id=>getEmployee(id)?.name).filter(Boolean).join('، ')||'—')}</td>
+                  <td>${esc(t.employeeIds.map(id=>shortName(getEmployee(id))).filter(Boolean).join('، ')||'—')}</td>
                   <td>${t.dueDate?fmtDate(t.dueDate):'—'}</td>
                   <td class="st-${t.status}">${taskStatusLabel(t.status)}</td>
                   <td>${esc(t.updatedBy||'—')}</td>
@@ -10619,13 +11404,13 @@ function renderStaffTemplates(){
       <button
         class="btn ghost small"
         onclick="openStaffView('home')">
-        ← رجوع للمجموعات
+        ${icon('back')} رجوع للمجموعات
       </button>
 
       <button
         class="btn secondary small"
         onclick="openTemplateModal()">
-        ＋ إضافة مهمة للقالب
+        ${icon('plus')} إضافة مهمة للقالب
       </button>
 
     </div>
@@ -10955,7 +11740,7 @@ const WIPE_ITEMS = [
    count:()=>DATA.teachers.length},
   {key:'tasks',        label:'المهام',                table:'tasks',              col:'id',      needs:[],
    count:()=>DATA.tasks.length},
-  {key:'ceoReports',   label:'التقارير المرسلة للرئيس التنفيذي',table:'ceo_reports',col:'id',    needs:[],
+  {key:'ceoReports',   label:'التقارير المرسلة لمدير الأكاديمية',table:'ceo_reports',col:'id',    needs:[],
    count:()=>DATA.ceoReports.length},
   {key:'templates',    label:'قالب المهام',            table:'task_templates',     col:'id',      needs:[],
    count:()=>DATA.taskTemplates.length},
