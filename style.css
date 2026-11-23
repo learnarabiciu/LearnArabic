@@ -898,3 +898,9 @@ td.assignee-cell{vertical-align:middle;}
 .btn .ic{margin-inline-end:6px;}
 .winner-card .medal{color:#c9a227;line-height:1;}
 .winner-card .medal .ic{vertical-align:0;}
+
+/* تواريخ الدورة بجانب اسم المجموعة */
+.group-dates{
+  font-weight:700;
+  unicode-bidi:isolate;
+}

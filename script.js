@@ -179,8 +179,44 @@ function mapGroup(r){
     id:r.id,
     name:r.name,
     description:r.description||'',
+    startDate:r.start_date||'',
+    endDate:r.end_date||'',
     createdAt:r.created_at||''
   };
+}
+
+/* ترتيب المجموعات حسب تاريخ بداية الدورة (الأقدم أولًا،
+   وبلا تاريخ في الآخر، وعند تساوي البداية يتقدم أبجديًا) */
+
+function sortGroupsByStartDate(){
+
+  const FAR='9999-12-31';
+
+  DATA.groups.sort((a,b)=>{
+
+    const as=a.startDate||FAR, bs=b.startDate||FAR;
+    if(as!==bs) return as<bs?-1:1;
+
+    return String(a.name||'').localeCompare(String(b.name||''),'ar');
+  });
+}
+
+const AR_MONTHS=
+  ['يناير','فبراير','مارس','أبريل','مايو','يونيو',
+   'يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر'];
+
+/* يُبرز نطاق التاريخ داخل سطر الوصف بخط عريض */
+
+function descWithBoldDates(desc){
+
+  const html=esc(desc||'');
+
+  const M=AR_MONTHS.join('|');
+  const re=new RegExp(
+    '[\\u0660-\\u06690-9]+(?:\\s+(?:'+M+'))?\\s*[-\u2013\u2014]\\s*[\\u0660-\\u06690-9]+(?:\\s+(?:'+M+'))?'
+  );
+
+  return html.replace(re,m=>'<bdi class="group-dates">'+m+'</bdi>');
 }
 
 function mapTask(r){
@@ -639,6 +675,7 @@ async function loadStaffData(){
     DATA.employees=(emps||[]).map(mapEmployee);
     DATA.tasks=(tasks||[]).map(mapTask);
     DATA.groups=(groups||[]).map(mapGroup);
+    sortGroupsByStartDate();
 
   }catch(e){
 
@@ -8295,7 +8332,7 @@ function renderAdminStaff(){
 
 /* ---------- الصفحة الرئيسية: صناديق المجموعات ---------- */
 
-function renderGroupTile(label,desc,tasks,onclick,actions,cls){
+function renderGroupTile(label,desc,tasks,onclick,actions,cls,suffix){
 
   const c=taskCounts(tasks);
 
@@ -8305,11 +8342,11 @@ function renderGroupTile(label,desc,tasks,onclick,actions,cls){
       class="group-tile ${cls||''}"
       onclick="${onclick}">
 
-      <div class="group-name">${esc(label)}</div>
+      <div class="group-name">${esc(label)}${suffix||''}</div>
 
       ${
         desc
-        ? `<div class="group-desc">${esc(desc)}</div>`
+        ? `<div class="group-desc">${descWithBoldDates(desc)}</div>`
         : ''
       }
 
@@ -8321,7 +8358,7 @@ function renderGroupTile(label,desc,tasks,onclick,actions,cls){
       ${
         c.total
         ? progressBarHtml(donePercent(tasks))
-        : '<div class="progress-track"></div>'
+        : ''
       }
 
       ${actions||''}
@@ -9313,6 +9350,8 @@ function openGroupModal(id){
 
     fields:[
       {key:'name',label:'اسم المجموعة',value:g?.name||'',required:true},
+      {key:'startDate',label:'تاريخ بداية الدورة',type:'date',value:g?.startDate||''},
+      {key:'endDate',label:'تاريخ نهاية الدورة',type:'date',value:g?.endDate||''},
       {key:'description',label:'وصف (اختياري)',type:'textarea',value:g?.description||''},
       ...(
         !g && DATA.taskTemplates.length
@@ -9336,10 +9375,13 @@ function openGroupModal(id){
 
         const row=await updateRow('task_groups',g.id,{
           name:v.name,
-          description:v.description
+          description:v.description,
+          start_date:v.startDate||null,
+          end_date:v.endDate||null
         });
 
         Object.assign(g,mapGroup(row));
+        sortGroupsByStartDate();
 
         toast('تم حفظ التعديل');
 
@@ -9348,12 +9390,18 @@ function openGroupModal(id){
         const row=await sb(
           db()
           .from('task_groups')
-          .insert({name:v.name,description:v.description})
+          .insert({
+            name:v.name,
+            description:v.description,
+            start_date:v.startDate||null,
+            end_date:v.endDate||null
+          })
           .select()
           .single()
         );
 
         DATA.groups.push(mapGroup(row));
+        sortGroupsByStartDate();
 
         let made=0;
 
