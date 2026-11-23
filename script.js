@@ -80,6 +80,7 @@ function emptyData(){
     tasks:[],
     groups:[],
     teacherScores:[],
+    teacherCourseEvals:[],
     evalSettings:evEmptySettings(),
     ceoReports:[],
     taskTemplates:[]
@@ -170,8 +171,41 @@ function mapEmployee(r){
     phone:r.phone||'',
     jobTitle:r.job_title||'',
     loginCode:r.login_code||'',
-    isCeo:!!r.is_ceo
+    isCeo:!!r.is_ceo,
+    isManagement:!!r.is_management
   };
+}
+
+/* الموظف صاحب صلاحية الإدارة (حساب واحد يجمع الدورين) */
+function getManagementEmployee(){
+  return DATA.employees.find(e=>e.isManagement)||null;
+}
+
+function isManagementSession(){
+  const e=currentEmployeeId?getEmployee(currentEmployeeId):null;
+  return !!(e&&e.isManagement);
+}
+
+function mgmtBadgeHtml(){
+  return ' <span class="mgmt-badge">الإدارة</span>';
+}
+
+function enterAdminFromEmployee(){
+  currentAdmin=true;
+  adminTab='staff';
+  staffNav.admin.view='home';
+  staffNav.admin.group=null;
+  showScreen('screen-admin');
+  renderAdmin();
+  toast('لوحة الإدارة');
+}
+
+function backToEmployeePanel(){
+  currentAdmin=false;
+  employeeTab='tasks';
+  staffNav.employee.view='home';
+  showScreen('screen-employee');
+  renderEmployee();
 }
 
 function mapGroup(r){
@@ -646,7 +680,7 @@ async function loadStaffData(){
   try{
 
     const empQ=db().from('employees')
-      .select(isAdmin?'*':'id,name,job_title,is_ceo')
+      .select(isAdmin?'*':'id,name,job_title,is_ceo,is_management')
       .order('created_at',{ascending:true});
 
     const taskQ=db().from('tasks').select('*')
@@ -1066,7 +1100,7 @@ function renderHeaderActions(){
           currentProfile?.full_name||
           currentUser.name||
           currentUser.email
-        )}
+        )}${isManagementSession()?mgmtBadgeHtml():''}
       </span>
 
       <button
@@ -1167,7 +1201,16 @@ function renderAdminNav(){
       "adminTab='settings';renderAdmin()"
     )
 
-  ].join('')+sideCreditHtml();
+  ].join('')+(
+    isManagementSession()&&currentProfile?.role!=='admin'
+    ? navButton(
+        'employee',
+        'لوحة الموظف',
+        false,
+        'backToEmployeePanel()'
+      )
+    : ''
+  )+sideCreditHtml();
 }
 
 function renderTeacherNav(){
@@ -2025,6 +2068,18 @@ function mapTeacherScore(r){
   };
 }
 
+function mapTeacherCourseEval(r){
+  return {
+    id:r.id,
+    teacherId:r.teacher_id,
+    groupName:r.group_name||'',
+    score:Number(r.score)||0,
+    note:r.note||'',
+    updatedBy:r.updated_by||'',
+    updatedAt:r.updated_at||''
+  };
+}
+
 /* ---------- التحضير اليومي (بصمة الحضور) ---------- */
 
 function attCourseCfg(){
@@ -2330,12 +2385,15 @@ async function loadEvalData(){
 
   try{
 
-    const [scores,settings]=await Promise.all([
+    const [scores,settings,courseEvals]=await Promise.all([
       sb(db().from('teacher_scores').select('*')).catch(()=>[]),
-      sb(db().from('app_settings').select('*')).catch(()=>[])
+      sb(db().from('app_settings').select('*')).catch(()=>[]),
+      sb(db().from('teacher_course_evals').select('*')).catch(()=>[])
     ]);
 
     DATA.teacherScores=(scores||[]).map(mapTeacherScore);
+    DATA.teacherCourseEvals=
+      (courseEvals||[]).map(mapTeacherCourseEval);
 
     (settings||[]).forEach(r=>{
 
@@ -2584,6 +2642,8 @@ function renderAdminTeacherEval(){
 
   const tabs=[
     ['score','التقييم الأسبوعي'],
+    ['courses','تقييم الدورات'],
+    ['record','السجل المستمر'],
     ['attend','الحضور والبصمة'],
     ['board','لوحة المتصدّرين'],
     ['report',icon('file')+' التقرير الأسبوعي'],
@@ -2593,6 +2653,8 @@ function renderAdminTeacherEval(){
 
   const bodies={
     score:renderEvScore,
+    courses:renderEvCourses,
+    record:renderEvRecord,
     attend:renderEvAttendance,
     board:renderEvBoard,
     report:renderEvReport,
@@ -2637,6 +2699,250 @@ function evGoTab(k){
   evCertEditorOpen=false;
 
   renderAdmin();
+}
+
+/* ---------- تقييم المعلم لكل دورة + السجل المستمر ---------- */
+
+let evCourseSel = '';
+
+function evCourseNames(){
+
+  const s=new Set();
+
+  DATA.rooms.forEach(r=>{
+    if(r.groupName) s.add(r.groupName);
+  });
+
+  return [...s];
+}
+
+function evCourseTeachers(groupName){
+
+  const ids=[
+    ...new Set(
+      DATA.rooms
+        .filter(r=>r.groupName===groupName && r.teacherId)
+        .map(r=>r.teacherId)
+    )
+  ];
+
+  return ids
+    .map(id=>DATA.teachers.find(t=>t.id===id))
+    .filter(Boolean);
+}
+
+function evCourseEvalRow(tid,groupName){
+
+  return DATA.teacherCourseEvals.find(
+    r=>r.teacherId===tid && r.groupName===groupName
+  );
+}
+
+function renderEvCourses(){
+
+  const courses=evCourseNames();
+
+  if(!courses.length){
+    return `
+      <div class="notice">
+        لا توجد دورات بقاعات بعد. أضف القاعات والدورات أولاً.
+      </div>
+    `;
+  }
+
+  if(!courses.includes(evCourseSel)) evCourseSel=courses[0];
+
+  const teachers=evCourseTeachers(evCourseSel);
+
+  return `
+    <div class="notice">
+      قيّم مستوى كل معلم في الدورة المحددة (من ١٠).
+      التقييم ينحفظ لكل معلم وكل دورة على حدة،
+      ويدخل في «السجل المستمر».
+    </div>
+
+    <div class="field" style="max-width:340px;margin-bottom:14px;">
+      <label class="modal-label">الدورة</label>
+      <select
+        class="input"
+        onchange="evCourseSel=this.value;renderAdmin()">
+        ${courses.map(c=>`
+          <option
+            value="${esc(c)}"
+            ${c===evCourseSel?'selected':''}>
+            ${esc(c)}
+          </option>
+        `).join('')}
+      </select>
+    </div>
+
+    ${
+      teachers.length
+      ? teachers.map(t=>{
+          const row=evCourseEvalRow(t.id,evCourseSel);
+          return `
+            <div class="card-inner" style="margin-bottom:10px;">
+              <h3>${esc(t.name)}</h3>
+              <div class="form-grid">
+                <div class="field">
+                  <label class="modal-label">التقييم (من ١٠)</label>
+                  <input
+                    id="ce-score-${t.id}"
+                    class="input"
+                    type="number"
+                    min="0" max="10" step="0.5"
+                    value="${row?row.score:''}">
+                </div>
+                <div class="field">
+                  <label class="modal-label">ملاحظة (اختياري)</label>
+                  <input
+                    id="ce-note-${t.id}"
+                    class="input"
+                    type="text"
+                    value="${esc(row?.note||'')}">
+                </div>
+              </div>
+              <button
+                class="btn primary"
+                onclick="evSaveCourseEval('${t.id}')">
+                حفظ التقييم
+              </button>
+              ${
+                row
+                ? `<span class="hint"> آخر حفظ: ${esc(row.updatedBy||'الإدارة')}</span>`
+                : ''
+              }
+            </div>
+          `;
+        }).join('')
+      : '<div class="notice">لا يوجد معلمون مسندون لهذه الدورة.</div>'
+    }
+  `;
+}
+
+async function evSaveCourseEval(tid){
+
+  const g=evCourseSel;
+
+  const score=Math.max(
+    0,
+    Math.min(10,Number($('ce-score-'+tid).value)||0)
+  );
+
+  const note=$('ce-note-'+tid).value.trim();
+
+  const existing=evCourseEvalRow(tid,g);
+
+  const payload={
+    teacher_id:tid,
+    group_name:g,
+    score,
+    note,
+    updated_by:'الإدارة',
+    updated_at:new Date().toISOString()
+  };
+
+  try{
+
+    if(existing){
+
+      const row=await updateRow('teacher_course_evals',existing.id,payload);
+
+      Object.assign(existing,mapTeacherCourseEval(row));
+
+    }else{
+
+      const row=await sb(
+        db()
+        .from('teacher_course_evals')
+        .insert(payload)
+        .select()
+        .single()
+      );
+
+      DATA.teacherCourseEvals.push(mapTeacherCourseEval(row));
+    }
+
+    toast('تم حفظ التقييم');
+
+    renderAdmin();
+
+  }catch(e){
+
+    toast(friendlyError(e),true);
+  }
+}
+
+function renderEvRecord(){
+
+  const maxCrit=
+    evCriteria().reduce((s,c)=>s+(Number(c.max)||0),0)||1;
+
+  const rows=DATA.teachers.map(t=>{
+
+    const weeks=
+      DATA.teacherScores.filter(r=>r.teacherId===t.id);
+
+    const wAvg=
+      weeks.length
+      ? weeks.reduce(
+          (s,r)=>s+evWeekTotal(t.id,r.week),0
+        )/weeks.length/maxCrit*100
+      : null;
+
+    const courses=
+      DATA.teacherCourseEvals.filter(r=>r.teacherId===t.id);
+
+    const cAvg=
+      courses.length
+      ? courses.reduce((s,r)=>s+r.score,0)/courses.length*10
+      : null;
+
+    const parts=[wAvg,cAvg].filter(v=>v!=null);
+
+    const overall=
+      parts.length
+      ? parts.reduce((s,v)=>s+v,0)/parts.length
+      : null;
+
+    return {t,weeks:weeks.length,wAvg,courses,cAvg,overall};
+  });
+
+  const pct=v=>v==null?'-':Math.round(v)+'%';
+
+  return `
+    <div class="notice">
+      سجل يتراكم طوال عمل المعلم معنا: يجمع تقييماته الأسبوعية
+      وتقييماته في كل دورة، ويحسب المتوسط العام.
+    </div>
+
+    ${rows.map(r=>`
+      <div class="card-inner" style="margin-bottom:10px;">
+        <h3>${esc(r.t.name)}</h3>
+        <div class="group-meta">
+          الأسابيع المقيّمة: ${r.weeks}
+          · متوسط التقييم الأسبوعي: ${pct(r.wAvg)}
+          · متوسط تقييم الدورات: ${pct(r.cAvg)}
+        </div>
+        ${
+          r.courses.length
+          ? `<div class="assignee-cell" style="margin:8px 0;">
+              ${r.courses.map(c=>`
+                <span class="assignee-tag">
+                  ${esc(c.groupName)} ${c.score}/١٠
+                </span>
+              `).join('')}
+            </div>`
+          : ''
+        }
+        <div class="progress-row">
+          <span class="progress-label">المتوسط العام المستمر</span>
+          ${progressBarHtml(Math.round(r.overall||0))}
+          <span class="progress-pct">${pct(r.overall)}</span>
+        </div>
+      </div>
+    `).join('')}
+  `;
 }
 
 /* ---------- 1) التقييم الأسبوعي ---------- */
@@ -8259,8 +8565,8 @@ function assigneeTags(t){
     if(!e) return '';
 
     return `
-      <span class="assignee-tag ${id===currentEmployeeId?'me':''} ${e.isCeo?'ceo':''}">
-        ${e.isCeo?'<span class="ceo-dot"></span>':''}${esc(shortName(e))}
+      <span class="assignee-tag ${id===currentEmployeeId?'me':''} ${e.isCeo?'ceo':''} ${e.isManagement?'mgmt':''}">
+        ${e.isCeo?'<span class="ceo-dot"></span>':''}${esc(shortName(e))}${e.isManagement?mgmtBadgeHtml():''}
       </span>
     `;
 
@@ -8515,7 +8821,7 @@ function renderStaffHome(isAdmin){
               <div class="progress-row">
 
                 <span class="progress-label">
-                  ${esc(e.name)}${e.id===currentEmployeeId?' (أنت)':''}
+                  ${esc(e.name)}${e.id===currentEmployeeId?' (أنت)':''}${e.isManagement?mgmtBadgeHtml():''}
                 </span>
 
                 ${
@@ -9201,7 +9507,7 @@ function openTaskModal(id){
         ]},
       {key:'employeeIds',label:'المشتركون في المهمة',type:'checkboxes',
         value:t?.employeeIds||[],
-        options:DATA.employees.map(e=>({value:e.id,label:e.name}))}
+        options:DATA.employees.map(e=>({value:e.id,label:e.name+(e.isManagement?' · الإدارة':'')}))}
     ],
 
     onSave:async v=>{
@@ -9216,6 +9522,16 @@ function openTaskModal(id){
         updated_at:new Date().toISOString(),
         updated_by:'الإدارة'
       };
+
+      // تعديل الإدارة لمهمة مسندة لموظف الإدارة = إنجاز باسمه
+      const mgmt=getManagementEmployee();
+      if(
+        t && mgmt &&
+        (v.employeeIds||[]).includes(mgmt.id)
+      ){
+        payload.status='done';
+        payload.updated_by=mgmt.name;
+      }
 
       if(t){
 
@@ -9561,7 +9877,7 @@ function renderStaffEmployeesAdmin(){
                 return `
                   <tr>
 
-                    <td>${e.isCeo?'<span class="ceo-dot"></span>':''}${esc(e.name)}${e.isCeo?' <span class="assignee-tag ceo">مدير الأكاديمية</span>':''}</td>
+                    <td>${e.isCeo?'<span class="ceo-dot"></span>':''}${esc(e.name)}${e.isCeo?' <span class="assignee-tag ceo">مدير الأكاديمية</span>':''}${e.isManagement?mgmtBadgeHtml():''}</td>
 
                     <td>${esc(e.jobTitle||'-')}</td>
 
@@ -9880,6 +10196,15 @@ function renderEmployeeNav(){
     'لوحة المهام',
     employeeTab==='tasks',
     "employeeTab='tasks';staffNav.employee.view='home';renderEmployee()"
+  )+(
+    isManagementSession()
+    ? navButton(
+        'admin',
+        'لوحة الإدارة',
+        false,
+        'enterAdminFromEmployee()'
+      )
+    : ''
   )+sideCreditHtml();
 }
 
@@ -11613,7 +11938,7 @@ function openTemplateModal(id){
       {key:'description',label:'التفاصيل (اختياري)',type:'textarea',value:t?.description||''},
       {key:'employeeIds',label:'المسند إليهم افتراضيًا (اختياري)',type:'checkboxes',
         value:t?.employeeIds||[],
-        options:DATA.employees.map(e=>({value:e.id,label:e.name}))}
+        options:DATA.employees.map(e=>({value:e.id,label:e.name+(e.isManagement?' · الإدارة':'')}))}
     ],
 
     onSave:async v=>{
@@ -11772,6 +12097,8 @@ const WIPE_ITEMS = [
    count:()=>DATA.teacherEvaluations.length},
   {key:'teacherScores',label:'درجات المعلمين الأسبوعية',table:'teacher_scores',    col:'id',      needs:[],
    count:()=>DATA.teacherScores.length},
+  {key:'teacherCourseEvals',label:'تقييمات المعلمين للدورات',table:'teacher_course_evals',col:'id', needs:[],
+   count:()=>DATA.teacherCourseEvals.length},
   {key:'deductions',   label:'خصومات المعلمين',       table:'teacher_deductions', col:'id',      needs:[],
    count:()=>DATA.teacherDeductions.length},
   {key:'reports',      label:'التقارير الأسبوعية',    table:'reports',            col:'id',      needs:[],
