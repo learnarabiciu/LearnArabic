@@ -904,7 +904,7 @@ td.assignee-cell{vertical-align:middle;}
   unicode-bidi:isolate;
 }
 
-/* شارة الإدارة العليا المميزة بجانب اسم صاحب الحساب المزدوج */
+/* شارة مصمم المنصة المميزة بجانب اسم صاحب الحساب المزدوج */
 .mgmt-badge{
   display:inline-flex;
   align-items:center;

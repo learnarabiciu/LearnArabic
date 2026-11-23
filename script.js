@@ -187,7 +187,7 @@ function isManagementSession(){
 }
 
 function mgmtBadgeHtml(){
-  return ' <span class="mgmt-badge"><svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M5 16L3 6l5.5 4L12 4l3.5 6L21 6l-2 10H5zm0 2h14v2H5z"/></svg>الإدارة العليا</span>';
+  return ' <span class="mgmt-badge"><svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M5 16L3 6l5.5 4L12 4l3.5 6L21 6l-2 10H5zm0 2h14v2H5z"/></svg>مصمم المنصة</span>';
 }
 function ceoBadgeHtml(){
   return ' <span class="ceo-badge">المدير</span>';
@@ -9510,7 +9510,7 @@ function openTaskModal(id){
         ]},
       {key:'employeeIds',label:'المشتركون في المهمة',type:'checkboxes',
         value:t?.employeeIds||[],
-        options:DATA.employees.map(e=>({value:e.id,label:e.name+(e.isManagement?' · الإدارة العليا':e.isCeo?' · المدير':'')}))}
+        options:DATA.employees.map(e=>({value:e.id,label:e.name+(e.isManagement?' · مصمم المنصة':e.isCeo?' · المدير':'')}))}
     ],
 
     onSave:async v=>{
@@ -11941,7 +11941,7 @@ function openTemplateModal(id){
       {key:'description',label:'التفاصيل (اختياري)',type:'textarea',value:t?.description||''},
       {key:'employeeIds',label:'المسند إليهم افتراضيًا (اختياري)',type:'checkboxes',
         value:t?.employeeIds||[],
-        options:DATA.employees.map(e=>({value:e.id,label:e.name+(e.isManagement?' · الإدارة العليا':e.isCeo?' · المدير':'')}))}
+        options:DATA.employees.map(e=>({value:e.id,label:e.name+(e.isManagement?' · مصمم المنصة':e.isCeo?' · المدير':'')}))}
     ],
 
     onSave:async v=>{
