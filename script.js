@@ -187,7 +187,10 @@ function isManagementSession(){
 }
 
 function mgmtBadgeHtml(){
-  return ' <span class="mgmt-badge">الإدارة</span>';
+  return ' <span class="mgmt-badge"><svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M5 16L3 6l5.5 4L12 4l3.5 6L21 6l-2 10H5zm0 2h14v2H5z"/></svg>الإدارة العليا</span>';
+}
+function ceoBadgeHtml(){
+  return ' <span class="ceo-badge">المدير</span>';
 }
 
 function enterAdminFromEmployee(){
@@ -1096,11 +1099,11 @@ function renderHeaderActions(){
   h.innerHTML=currentUser
     ? `
       <span class="user-chip">
-        ${currentUser?.ceoLogin?'<span class="ceo-dot"></span>':''}${esc(
+        <span class="user-chip-name">${esc(
           currentProfile?.full_name||
           currentUser.name||
           currentUser.email
-        )}${isManagementSession()?mgmtBadgeHtml():''}
+        )}</span>${isManagementSession()?mgmtBadgeHtml():''}${currentUser?.ceoLogin?ceoBadgeHtml():''}
       </span>
 
       <button
@@ -8565,8 +8568,8 @@ function assigneeTags(t){
     if(!e) return '';
 
     return `
-      <span class="assignee-tag ${id===currentEmployeeId?'me':''} ${e.isCeo?'ceo':''} ${e.isManagement?'mgmt':''}">
-        ${e.isCeo?'<span class="ceo-dot"></span>':''}${esc(shortName(e))}${e.isManagement?mgmtBadgeHtml():''}
+      <span class="assignee-tag ${id===currentEmployeeId?'me':''} ${e.isManagement?'mgmt':''}">
+        ${esc(shortName(e))}${e.isManagement?mgmtBadgeHtml():''}${e.isCeo?ceoBadgeHtml():''}
       </span>
     `;
 
@@ -8821,7 +8824,7 @@ function renderStaffHome(isAdmin){
               <div class="progress-row">
 
                 <span class="progress-label">
-                  ${esc(e.name)}${e.id===currentEmployeeId?' (أنت)':''}${e.isManagement?mgmtBadgeHtml():''}
+                  ${esc(e.name)}${e.id===currentEmployeeId?' (أنت)':''}${e.isManagement?mgmtBadgeHtml():''}${e.isCeo?ceoBadgeHtml():''}
                 </span>
 
                 ${
@@ -9507,7 +9510,7 @@ function openTaskModal(id){
         ]},
       {key:'employeeIds',label:'المشتركون في المهمة',type:'checkboxes',
         value:t?.employeeIds||[],
-        options:DATA.employees.map(e=>({value:e.id,label:e.name+(e.isManagement?' · الإدارة':'')}))}
+        options:DATA.employees.map(e=>({value:e.id,label:e.name+(e.isManagement?' · الإدارة العليا':e.isCeo?' · المدير':'')}))}
     ],
 
     onSave:async v=>{
@@ -9877,7 +9880,7 @@ function renderStaffEmployeesAdmin(){
                 return `
                   <tr>
 
-                    <td>${e.isCeo?'<span class="ceo-dot"></span>':''}${esc(e.name)}${e.isCeo?' <span class="assignee-tag ceo">مدير الأكاديمية</span>':''}${e.isManagement?mgmtBadgeHtml():''}</td>
+                    <td>${esc(e.name)}${e.isCeo?ceoBadgeHtml():''}${e.isManagement?mgmtBadgeHtml():''}</td>
 
                     <td>${esc(e.jobTitle||'-')}</td>
 
@@ -11938,7 +11941,7 @@ function openTemplateModal(id){
       {key:'description',label:'التفاصيل (اختياري)',type:'textarea',value:t?.description||''},
       {key:'employeeIds',label:'المسند إليهم افتراضيًا (اختياري)',type:'checkboxes',
         value:t?.employeeIds||[],
-        options:DATA.employees.map(e=>({value:e.id,label:e.name+(e.isManagement?' · الإدارة':'')}))}
+        options:DATA.employees.map(e=>({value:e.id,label:e.name+(e.isManagement?' · الإدارة العليا':e.isCeo?' · المدير':'')}))}
     ],
 
     onSave:async v=>{

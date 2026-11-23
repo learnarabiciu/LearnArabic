@@ -294,9 +294,6 @@ tr.mine-row td{background:#fefaf1;}
 td.assignee-cell{vertical-align:middle;}
 .assignee-cell{display:flex;flex-wrap:wrap;gap:6px;align-items:center;justify-content:flex-start;}
 .assignee-cell .assignee-tag{margin:0;}
-.assignee-tag.ceo{position:relative;}
-.assignee-tag.ceo{padding-inline-start:26px;}
-.assignee-tag.ceo .ceo-dot{position:absolute;inset-inline-start:10px;top:50%;transform:translateY(-50%);margin-inline-end:0;flex:none;}
 .assignee-tag.me{background:var(--orange);color:var(--purple-dark);}
 
 /* ---------- Edit modal ---------- */
@@ -684,7 +681,7 @@ td.assignee-cell{vertical-align:middle;}
 .ceo-seal__star{font-size:20px;}
 .ceo-seal__ring b{font-family:'Cairo',sans-serif;font-size:13px;font-weight:800;}
 .ceo-seal__ring small{font-size:10px;font-weight:700;}
-.assignee-tag.ceo{background:var(--purple-deep);color:var(--gold);}
+
 .ceo-report-view{overflow-x:auto;}
 @media (max-width:640px){.ceo-banner{flex-direction:column;text-align:center;}}
 
@@ -717,7 +714,10 @@ td.assignee-cell{vertical-align:middle;}
   .brand-text span{display:none;}
   .brand-text b{font-size:14px;}
   .header-actions{gap:6px;flex:none;}
-  .user-chip{font-size:12px;padding:5px 10px;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .user-chip{font-size:12px;padding:5px 10px;max-width:none;white-space:nowrap;}
+  .user-chip .user-chip-name{display:inline-block;max-width:104px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:middle;}
+  .user-chip .mgmt-badge,.user-chip .ceo-badge{font-size:9px;padding:1px 7px;gap:3px;}
+  .user-chip .mgmt-badge svg{width:9px;height:9px;}
   .header-actions .btn{padding:7px 12px;font-size:12.5px;}
 
   /* القائمة الجانبية تصير شريط أفقي ثابت قابل للتمرير */
@@ -844,8 +844,7 @@ td.assignee-cell{vertical-align:middle;}
 }
 
 /* ---------- دائرة الرئيس التنفيذي (بدل التاج) ---------- */
-.ceo-dot{display:inline-block;flex:none;width:.72em;height:.72em;min-width:.72em;min-height:.72em;border-radius:50%;background:radial-gradient(circle at 35% 30%,#ffe08a,#f6b132 60%,#d99414);margin-inline-end:.4em;vertical-align:middle;box-shadow:0 0 0 1px rgba(0,0,0,.10);}
-.assignee-tag.ceo .ceo-dot{box-shadow:0 0 0 1px rgba(255,255,255,.35);}
+
 
 /* ---------- تحسينات إضافية ---------- */
 .section-head{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;}
@@ -905,13 +904,32 @@ td.assignee-cell{vertical-align:middle;}
   unicode-bidi:isolate;
 }
 
-/* شارة الإدارة بجانب اسم صاحب الحساب المزدوج */
+/* شارة الإدارة العليا المميزة بجانب اسم صاحب الحساب المزدوج */
 .mgmt-badge{
-  display:inline-block;
-  background:var(--purple-deep);
+  display:inline-flex;
+  align-items:center;
+  gap:4px;
+  background:linear-gradient(135deg,var(--purple-deep),#341554);
   color:var(--gold);
   font-size:10.5px;
   font-weight:800;
+  border:1px solid var(--gold);
+  border-radius:999px;
+  padding:2px 10px;
+  margin-inline-start:6px;
+  vertical-align:middle;
+  line-height:1.6;
+  box-shadow:0 1px 5px rgba(212,175,55,.35);
+}
+.mgmt-badge svg{flex:none;}
+/* شارة المدير البسيطة */
+.ceo-badge{
+  display:inline-block;
+  background:var(--white);
+  color:var(--purple);
+  border:1px solid var(--purple);
+  font-size:10.5px;
+  font-weight:700;
   border-radius:999px;
   padding:2px 9px;
   margin-inline-start:6px;
