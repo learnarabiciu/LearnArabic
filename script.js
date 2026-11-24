@@ -8567,13 +8567,9 @@ function assigneeTags(t){
 
     if(!e) return '';
 
-    if(e.isManagement){
-      return `<span class="assignee-tag ${id===currentEmployeeId?'me':''}">${esc('عبد الوهاب (مصمم المنصة)')}</span>`;
-    }
-
     return `
-      <span class="assignee-tag ${id===currentEmployeeId?'me':''}">
-        ${esc(shortName(e))}${e.isCeo?ceoBadgeHtml():''}
+      <span class="assignee-tag ${id===currentEmployeeId?'me':''} ${e.isManagement?'mgmt':''}">
+        ${e.isManagement?esc(e.name.split(' ')[0]):esc(shortName(e))}${e.isManagement?mgmtBadgeHtml():''}${e.isCeo?ceoBadgeHtml():''}
       </span>
     `;
 
