@@ -187,7 +187,7 @@ function isManagementSession(){
 }
 
 function mgmtBadgeHtml(){
-  return ' <span class="mgmt-badge"><svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M5 16L3 6l5.5 4L12 4l3.5 6L21 6l-2 10H5zm0 2h14v2H5z"/></svg>مصمم المنصة</span>';
+  return ' <span class="mgmt-badge"><span class="dot" aria-hidden="true"></span>مصمم المنصة</span>';
 }
 function ceoBadgeHtml(){
   return ' <span class="ceo-badge">المدير</span>';
