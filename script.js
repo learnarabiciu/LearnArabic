@@ -8569,7 +8569,7 @@ function assigneeTags(t){
 
     return `
       <span class="assignee-tag ${id===currentEmployeeId?'me':''} ${e.isManagement?'mgmt':''}">
-        ${e.isManagement?esc(e.name.split(' ')[0]):esc(shortName(e))}${e.isManagement?mgmtBadgeHtml():''}${e.isCeo?ceoBadgeHtml():''}${e.id==='daf7ab9e-9a25-47fe-812a-f41c6485633e'&&e.id!==currentEmployeeId?'<span style="font-size:10px;font-weight:600;opacity:.7;margin-inline-start:4px">(موظف تجريبي)</span>':''}
+        ${e.isManagement?esc(e.name.split(' ')[0]):esc(shortName(e))}${e.isManagement?mgmtBadgeHtml():''}${e.isCeo?ceoBadgeHtml():''}
       </span>
     `;
 
