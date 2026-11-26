@@ -2565,6 +2565,17 @@ function evTeachersSorted(){
     );
 }
 
+/* معلّم دورته أقل من أسبوع: يُستبعد من التقييم الأسبوعي فقط */
+function evShortCourseTeacher(tid){
+
+  const rooms=DATA.rooms.filter(r=>r.teacherId===tid);
+
+  return (
+    rooms.length>0 &&
+    rooms.every(r=>(r.durationDays||0)<7)
+  );
+}
+
 function evRanked(){
 
   return DATA.teachers
@@ -2956,12 +2967,11 @@ function evDraftWeek(week){
 
   DATA.teachers.forEach(t=>{
 
-    if(!evDraft[week][t.id]){
-
-      evDraft[week][t.id]={
-        ...(evScoreRow(t.id,week)?.scores||{})
-      };
-    }
+    /* الدرجات المحفوظة تملأ الفراغ، والمدخلات اليدوية تبقى */
+    evDraft[week][t.id]={
+      ...(evScoreRow(t.id,week)?.scores||{}),
+      ...(evDraft[week][t.id]||{})
+    };
   });
 
   return evDraft[week];
@@ -2999,7 +3009,7 @@ function renderEvScoreTable(){
 
       <tbody>
 
-        ${evTeachersSorted().map(t=>`
+        ${evTeachersSorted().filter(t=>!evShortCourseTeacher(t.id)).map(t=>`
 
           <tr>
 
@@ -3032,6 +3042,18 @@ function renderEvScoreTable(){
       </tbody>
 
     </table>
+
+    ${
+      evTeachersSorted().some(t=>evShortCourseTeacher(t.id))
+      ? `
+        <div class="notice" style="margin-top:10px;">
+          خارج التقييم الأسبوعي (دورة أقل من أسبوع)، ويدخلون في
+          التقويم المستمر:
+          ${evTeachersSorted().filter(t=>evShortCourseTeacher(t.id)).map(t=>esc(t.name)).join('، ')}
+        </div>
+      `
+      : ''
+    }
 
   `;
 }
@@ -3406,6 +3428,7 @@ async function evSaveWeek(){
         scores:draft[t.id]||{},
         updated_at:new Date().toISOString()
       }))
+      .filter(r=>!evShortCourseTeacher(r.teacher_id))
       .filter(r=>
         Object.keys(r.scores).length ||
         evScoreRow(r.teacher_id,week)
