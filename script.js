@@ -193,12 +193,16 @@ function ceoBadgeHtml(){
   return ' <span class="ceo-badge">المدير</span>';
 }
 
-function enterAdminFromEmployee(){
+async function enterAdminFromEmployee(){
   currentAdmin=true;
   adminTab='staff';
   staffNav.admin.view='home';
   staffNav.admin.group=null;
   showScreen('screen-admin');
+  // عند الدخول كموظف لا تُحمَّل بيانات تقييم المعلمين مع loadData
+  // (تتطلب مديرًا)، فنحمّلها هنا قبل عرض اللوحة حتى لا تظهر
+  // شبكة التقييم بمقياس افتراضي (من 10) وبلا درجات محفوظة.
+  await loadEvalData();
   renderAdmin();
   toast('لوحة الإدارة');
 }
