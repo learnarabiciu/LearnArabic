@@ -12841,3 +12841,350 @@ function openMoreSheet(role){
   });
   document.body.appendChild(wrap);
 }
+
+/* =========================================================
+   التصميم الموحد — مطابقة نموذج الشاشات (نسخة الاختبار فقط)
+   ========================================================= */
+Object.assign(ICONS,{
+  door:'<rect x="5" y="3" width="14" height="18" rx="2"/><circle cx="15" cy="12" r="1.4" fill="currentColor" stroke="none"/>',
+  bell:'<path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/>',
+  speaker:'<path d="M11 5 6 9H2v6h4l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M18.6 5.4a9 9 0 0 1 0 13.2"/>',
+  cap:'<path d="M22 10 12 5 2 10l10 5 10-5z"/><path d="M6 12.5v4.5c0 1.7 2.7 3 6 3s6-1.3 6-3v-4.5"/>',
+  checkSq:'<rect x="3" y="3" width="18" height="18" rx="4"/><path d="m8 12.5 2.7 2.7L16.5 9"/>'
+});
+
+const MOCK_ADMIN_TILES=[
+  {tab:'rooms',      label:'القاعات والدورات', ic:'door'},
+  {tab:'teachers',   label:'المعلمون', ic:'users'},
+  {tab:'teacherEval',label:'تقييم المعلمين', ic:'star',
+    badge:()=>evTeachersSorted().filter(t=>!evShortCourseTeacher(t.id)&&evDraftTotal(t.id,evWeek)<=0).length||0},
+  {tab:'students',   label:'الطلاب', ic:'cap'},
+  {tab:'reports',    label:'التقارير', ic:'file'},
+  {tab:'announce',   label:'الإعلانات', ic:'speaker'},
+  {tab:'staff',      label:'المهام', ic:'checkSq'},
+  {tab:'export',     label:'التصدير', ic:'download'},
+  {tab:'settings',   label:'الإعدادات', ic:'gear'}
+];
+const MOCK_TEACHER_TILES=[
+  {tab:'reports', label:'التقارير', ic:'file'},
+  {tab:'uploads', label:'رفع أعمالي', ic:'upload'},
+  {tab:'evals',   label:'تقييماتي', ic:'star'},
+  {tab:'attend',  label:'تحضيري', ic:'hand'},
+  {tab:'announce',label:'الإعلانات', ic:'bell'},
+  {tab:'settings',label:'الإعدادات', ic:'gear'}
+];
+const MOCK_BAR_ADMIN=[
+  {tab:'home',       label:'الرئيسية', ic:'home'},
+  {tab:'rooms',      label:'الدورات',  ic:'door'},
+  {tab:'teachers',   label:'المعلمون', ic:'users'},
+  {tab:'teacherEval',label:'التقييم',  ic:'star'}
+];
+const MOCK_BAR_TEACHER=[
+  {tab:'home',    label:'الرئيسية', ic:'home'},
+  {tab:'uploads', label:'رفع',      ic:'upload'},
+  {tab:'evals',   label:'تقييماتي', ic:'star'},
+  {tab:'attend',  label:'تحضيري',   ic:'hand'},
+  {tab:'announce',label:'الإعلانات',ic:'bell'}
+];
+const MOCK_TITLES_ADMIN={rooms:'القاعات والدورات',teachers:'المعلمون والمعلمات',teacherEval:'تقييم المعلمين',students:'الطلاب',staff:'الموظفون والمهام',reports:'التقارير الأسبوعية',announce:'الإعلانات',export:'التصدير',settings:'الإعدادات'};
+const MOCK_TITLES_TEACHER={reports:'التقارير الأسبوعية',uploads:'رفع أعمالي',evals:'تقييماتي',attend:'تحضيري',announce:'الإعلانات',settings:'الإعدادات'};
+
+function mockSubHead(role){
+  const t=role==='admin'?MOCK_TITLES_ADMIN[adminTab]:MOCK_TITLES_TEACHER[teacherTab];
+  if(!t) return '';
+  return `<div class="mp-head">
+    <div class="mp-head-top">
+      <span class="mp-role">${role==='admin'?'إدارة':'معلم'}</span>
+      <button type="button" class="mp-back" onclick="mobileGo('${role}','home')" aria-label="رجوع">${icon('back',18)}</button>
+    </div>
+    <h2>${esc(t)}</h2>
+  </div>`;
+}
+
+function renderAdminHome(){
+  const crit=evCriteria();
+  const maxSum=crit.reduce((a,c)=>a+Number(c.max||0),0)||1;
+  const ts=evTeachersSorted().filter(t=>!evShortCourseTeacher(t.id));
+  const scored=ts.filter(t=>evDraftTotal(t.id,evWeek)>0);
+  const pct=scored.length
+    ? Math.round(scored.reduce((a,t)=>a+Math.min(1,evDraftTotal(t.id,evWeek)/maxSum),0)/scored.length*100)
+    : 0;
+  const name=(currentProfile&&currentProfile.name)||'الإدارة';
+  return `
+    <div class="mp-head">
+      <div class="mp-head-top">
+        <span class="mp-name">${esc(name)}</span>
+        <button type="button" class="mp-bell" onclick="mobileGo('admin','announce')" aria-label="الإعلانات">${icon('bell',18)}</button>
+      </div>
+      <h2>لوحة الإدارة</h2>
+      <div class="mp-sub">اختر القسم الذي تريده</div>
+    </div>
+    <button type="button" class="mp-evalcard" onclick="mobileGo('admin','teacherEval')">
+      <span class="mp-ec-text">
+        <b>التقييم الأسبوعي</b>
+        <span>${scored.length} من ${ts.length} معلمين أكملوا الرفع</span>
+      </span>
+      <span class="home-ring" style="--p:${pct}"><b>${pct}%</b></span>
+    </button>
+    <div class="home-grid">
+      ${MOCK_ADMIN_TILES.map(s=>{
+        const b=s.badge?s.badge():0;
+        return `<button type="button" class="home-tile" onclick="mobileGo('admin','${s.tab}')">
+          ${b?`<span class="mp-badge">${b}</span>`:''}
+          ${icon(s.ic,22)}
+          <span>${esc(s.label)}</span>
+        </button>`;
+      }).join('')}
+    </div>`;
+}
+
+function renderTeacherHome(){
+  const tid=currentTeacherId;
+  const week=upCurrentWeek(tid);
+  const mine=upTeacherUploads(tid).filter(u=>u.week===week);
+  const cats=new Set(mine.map(u=>u.category));
+  const pct=Math.round(cats.size/UPLOAD_CATEGORIES.length*100);
+  const name=(getTeacher(tid)||{}).name||'';
+  return `
+    <div class="mp-head">
+      <div class="mp-head-top">
+        <span class="mp-name">${esc(name)}</span>
+        <button type="button" class="mp-bell" onclick="mobileGo('teacher','announce')" aria-label="الإعلانات">${icon('bell',18)}</button>
+      </div>
+      <h2>أهلًا ${esc(name.split(' ')[0]||name)}</h2>
+      <div class="mp-sub">أعمالك هذا الأسبوع: ${mine.length} ${mine.length===1?'ملف':'ملفات'}</div>
+    </div>
+    <button type="button" class="mp-evalcard" onclick="mobileGo('teacher','uploads')">
+      <span class="mp-ec-text">
+        <b>تغطية الأسبوع ${week}</b>
+        <span>${cats.size} من ${UPLOAD_CATEGORIES.length} أقسام مرفوعة</span>
+      </span>
+      <span class="home-ring" style="--p:${pct}"><b>${pct}%</b></span>
+    </button>
+    <div class="home-grid">
+      ${MOCK_TEACHER_TILES.map(s=>`
+        <button type="button" class="home-tile" onclick="mobileGo('teacher','${s.tab}')">
+          ${icon(s.ic,22)}
+          <span>${esc(s.label)}</span>
+        </button>`).join('')}
+    </div>`;
+}
+
+function renderMobileBar(role){
+  const screen=$(role==='admin'?'screen-admin':'screen-teacher');
+  if(!screen) return;
+  screen.querySelector('.mobile-bar')?.remove();
+  const current=role==='admin'?adminTab:teacherTab;
+  const main=role==='admin'?MOCK_BAR_ADMIN:MOCK_BAR_TEACHER;
+  const moreActive=role==='admin'&&!main.some(s=>s.tab===current);
+  const bar=document.createElement('nav');
+  bar.className='mobile-bar';
+  bar.innerHTML=main.map(s=>`
+    <button type="button" class="mb-item${current===s.tab?' active':''}"
+      onclick="mobileGo('${role}','${s.tab}')">
+      ${icon(s.ic,20)}
+      <span>${esc(s.label)}</span>
+    </button>`).join('')+
+    (role==='admin'
+      ? `<button type="button" class="mb-item${moreActive?' active':''}" onclick="openMoreSheet('admin')">
+          ${icon('dots',20)}
+          <span>المزيد</span>
+        </button>`
+      : '');
+  screen.appendChild(bar);
+}
+
+function openMoreSheet(role){
+  closeEditModal();
+  const tiles=role==='admin'?MOCK_ADMIN_TILES:MOCK_TEACHER_TILES;
+  const main=role==='admin'?MOCK_BAR_ADMIN:MOCK_BAR_TEACHER;
+  const items=tiles.filter(s=>!main.some(m=>m.tab===s.tab));
+  const wrap=document.createElement('div');
+  wrap.id='editModal';
+  wrap.className='modal-backdrop';
+  wrap.innerHTML=`
+    <div class="modal-box" role="dialog">
+      <h3>الأقسام</h3>
+      <div class="home-grid">
+        ${items.map(s=>`
+          <button type="button" class="home-tile"
+            onclick="closeEditModal();mobileGo('${role}','${s.tab}')">
+            ${icon(s.ic,22)}
+            <span>${esc(s.label)}</span>
+          </button>`).join('')}
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn ghost" onclick="closeEditModal()">إغلاق</button>
+      </div>
+    </div>`;
+  wrap.addEventListener('mousedown',e=>{
+    if(e.target===wrap) closeEditModal();
+  });
+  document.body.appendChild(wrap);
+}
+
+function renderAdmin(){
+  renderHeaderActions();
+  renderAdminNav();
+  const m=$('adminMain');
+  if(!m) return;
+  const views={
+    home:renderAdminHome,
+    rooms:renderAdminRooms,
+    teachers:renderAdminTeachers,
+    teacherEval:renderAdminTeacherEval,
+    students:renderAdminStudents,
+    reports:renderAdminReports,
+    announce:renderAdminAnnouncements,
+    staff:renderAdminStaff,
+    export:renderAdminExport,
+    settings:renderAdminSettings
+  };
+  m.innerHTML=(adminTab==='home'?'':mockSubHead('admin'))+views[adminTab]();
+  renderMobileBar('admin');
+}
+
+function renderTeacher(){
+  renderHeaderActions();
+  renderTeacherNav();
+  const m=$('teacherMain');
+  if(!m) return;
+  const views={
+    home:renderTeacherHome,
+    reports:renderTeacherReports,
+    uploads:renderTeacherUploads,
+    evals:renderTeacherEvals,
+    attend:renderTeacherAttendance,
+    announce:renderTeacherAnnouncements,
+    settings:renderTeacherSettings
+  };
+  m.innerHTML=(teacherTab==='home'?'':mockSubHead('teacher'))+views[teacherTab]();
+  renderMobileBar('teacher');
+}
+
+function upPickCat(k){
+  const s=$('upCat');
+  if(s) s.value=k;
+  document.querySelectorAll('#upChips .mp-chip').forEach(c=>
+    c.classList.toggle('active',c.dataset.upcat===k));
+}
+
+function renderTeacherUploads(){
+  const tid=currentTeacherId;
+  const mine=upTeacherUploads(tid);
+  const week=upCurrentWeek(tid);
+  const wk=mine.filter(u=>u.week===week);
+  return panel('رفع أعمالي',`
+    <div class="mp-chips" id="upChips">
+      ${UPLOAD_CATEGORIES.map((c,i)=>`
+        <button type="button" class="mp-chip${i===0?' active':''}" data-upcat="${c.key}"
+          onclick="upPickCat('${c.key}')">${esc(c.label)}</button>`).join('')}
+    </div>
+    <select id="upCat" hidden>
+      ${UPLOAD_CATEGORIES.map(c=>`<option value="${c.key}">${esc(c.label)}</option>`).join('')}
+    </select>
+    <div class="mp-upbtns">
+      <button type="button" class="mp-upbtn" onclick="upPick('photo')">
+        <span class="ub-ic">${icon('camera',22)}</span>تصوير صورة
+      </button>
+      <button type="button" class="mp-upbtn" onclick="upPick('video')">
+        <span class="ub-ic">${icon('video',22)}</span>تصوير مقطع
+      </button>
+      <button type="button" class="mp-upbtn" onclick="upPick('file')">
+        <span class="ub-ic">${icon('upload',22)}</span>رفع ملف
+      </button>
+    </div>
+    <input type="file" id="upInputPhoto" accept="image/*" capture="environment" hidden onchange="upHandleFiles(this)">
+    <input type="file" id="upInputVideo" accept="video/*" capture="environment" hidden onchange="upHandleFiles(this)">
+    <input type="file" id="upInputFile" multiple hidden onchange="upHandleFiles(this)">
+    <div class="card-inner mp-files">
+      <h3>ملفاتي هذا الأسبوع</h3>
+      ${wk.length
+        ? wk.map(u=>`
+          <div class="up-item">
+            <div class="up-item-main">
+              <span class="up-fic">${icon(u.mimeType&&u.mimeType.startsWith('image')?'camera':'file',18)}</span>
+              <span class="up-name">${esc(u.fileName)}</span>
+              <span class="up-meta">${esc(upCatLabel(u.category))} · ${upFmtSize(u.sizeBytes)}</span>
+            </div>
+            <div class="up-item-actions">
+              <button type="button" class="btn ghost small" onclick="upOpen('${u.id}')">${icon('upload',14)}</button>
+              <button type="button" class="btn ghost small" onclick="upDelete('${u.id}')">${icon('trash',14)}</button>
+            </div>
+          </div>`).join('')
+        : '<div class="notice">لا توجد أعمال مرفوعة بعد.</div>'}
+    </div>
+  `);
+}
+
+function renderTeacherAttendance(){
+  const rec=attTodayRec();
+  const cfg=attCourseCfg();
+  const mine=(DATA.attendance||[])
+    .filter(r=>r.teacherId===currentTeacherId)
+    .sort((a,b)=>b.date.localeCompare(a.date))
+    .slice(0,14);
+  const fmtT=ts=>new Date(ts).toLocaleTimeString('ar-SA',{hour:'2-digit',minute:'2-digit'});
+  const fmtD=d=>new Date(d+'T12:00:00').toLocaleDateString('ar-SA',{weekday:'long',day:'numeric',month:'long'});
+
+  const isoLocal=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+  const now=new Date();
+  const todayIso=isoLocal(now);
+  const dow=(now.getDay()+1)%7;
+  const sat=new Date(now); sat.setDate(now.getDate()-dow);
+  const names=['السبت','الأحد','الاثنين','الثلاثاء','الأربعاء','الخميس','الجمعة'];
+  const byDate={};
+  (DATA.attendance||[]).filter(r=>r.teacherId===currentTeacherId).forEach(r=>{byDate[r.date]=r;});
+  const days=names.map((n,i)=>{
+    const d=new Date(sat); d.setDate(sat.getDate()+i);
+    const iso=isoLocal(d);
+    const r=byDate[iso];
+    let cls='';
+    if(r){const st=attStatus(r); cls=st==='حاضر'?'g':st==='متأخر'?'y':'r';}
+    return `<div class="mp-day ${cls}${iso===todayIso?' today':''}">${n}</div>`;
+  }).join('');
+
+  return panel('تحضيري',`
+    <div class="card-inner" style="text-align:center;padding:26px 16px;">
+      ${
+        rec
+        ? `
+          <div class="mp-fp done">${icon('checkCircle',52)}</div>
+          <h3 style="margin:8px 0 8px;">تسجيل الحضور</h3>
+          <span class="mp-status-pill">${attStatus(rec)} ${fmtT(rec.ts)}</span>
+        `
+        : `
+          <button type="button" class="mp-fp" onclick="teacherCheckIn()" aria-label="تسجيل الحضور">${icon('hand',52)}</button>
+          <h3 style="margin:8px 0 8px;">تسجيل الحضور</h3>
+        `
+      }
+      <div class="hint" style="margin-top:10px;">
+        حاضر حتى ${attLimit(cfg.graceMinutes)} · متأخر حتى ${attLimit(cfg.absentAfterMinutes)}
+      </div>
+    </div>
+    <div class="card-inner" style="margin-top:14px;">
+      <h3>هذا الأسبوع</h3>
+      <div class="mp-days">${days}</div>
+    </div>
+    <div class="card-inner" style="margin-top:14px;">
+      <h3>سجل حضوري</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>اليوم</th><th>وقت البصمة</th><th>الحالة</th></tr></thead>
+          <tbody>
+            ${
+              mine.length
+              ? mine.map(r=>`
+                  <tr>
+                    <td>${fmtD(r.date)}</td>
+                    <td>${fmtT(r.ts)}</td>
+                    <td><b class="${attStatus(r)==='حاضر'?'':'warn'}">${attStatus(r)}</b></td>
+                  </tr>`).join('')
+              : '<tr><td colspan="3">لا توجد بصمات مسجلة بعد.</td></tr>'
+            }
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `);
+}
