@@ -1157,3 +1157,5 @@ td.assignee-cell{vertical-align:middle;}
 #screen-role{background:linear-gradient(165deg,#47225c 0%,#2b1140 60%,#1e0b30 100%) !important;}
 #screen-role .login-shell{background:transparent !important;}
 #screen-role .login-box{border:none !important;border-radius:24px !important;box-shadow:0 24px 60px rgba(20,5,35,.45) !important;}
+
+body:has(#screen-role.active) .app-header{display:none;}
