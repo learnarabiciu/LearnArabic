@@ -81,6 +81,7 @@ function emptyData(){
     groups:[],
     teacherScores:[],
     teacherCourseEvals:[],
+    teacherUploads:[],
     evalSettings:evEmptySettings(),
     ceoReports:[],
     taskTemplates:[]
@@ -203,6 +204,7 @@ async function enterAdminFromEmployee(){
   // (تتطلب مديرًا)، فنحمّلها هنا قبل عرض اللوحة حتى لا تظهر
   // شبكة التقييم بمقياس افتراضي (من 10) وبلا درجات محفوظة.
   await loadEvalData();
+  await loadTeacherUploads();
   renderAdmin();
   toast('لوحة الإدارة');
 }
@@ -354,6 +356,8 @@ function avgScores(obj,criteria,maxScale=5){
 }
 
 const ICONS={
+  camera:'<rect x="3" y="7" width="18" height="13" rx="2"/><circle cx="12" cy="13" r="4"/><path d="M8 7l1.5-3h5L16 7"/>',
+  video:'<rect x="2" y="6" width="13" height="12" rx="2"/><path d="M15 10l7-4v12l-7-4"/>',
   edit:'<path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/>',
   back:'<line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/>',
   file:'<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><polyline points="14 2 14 8 20 8"/>',
@@ -669,6 +673,7 @@ async function loadData(){
 
   await loadStaffData();
   await loadEvalData();
+  await loadTeacherUploads();
   await loadCeoInbox();
 }
 
@@ -1233,6 +1238,13 @@ function renderTeacherNav(){
       'التقارير الأسبوعية',
       teacherTab==='reports',
       "teacherTab='reports';renderTeacher()"
+    ),
+
+    navButton(
+      'uploads',
+      'رفع أعمالي',
+      teacherTab==='uploads',
+      "teacherTab='uploads';renderTeacher()"
     ),
 
     navButton(
@@ -3030,6 +3042,14 @@ function renderEvScoreTable(){
                   data-k="${c.key}"
                   value="${draft[t.id]?.[c.key]??''}"
                   oninput="evOnScore(this)">
+                ${upCount(t.id,c.key,evWeek)?`
+                <button
+                  type="button"
+                  class="up-badge"
+                  title="أعمال مرفوعة من المنصة"
+                  onclick="upOpenList('${t.id}','${c.key}')">
+                  ${icon('file',11)} ${upCount(t.id,c.key,evWeek)}
+                </button>`:''}
               </td>
             `).join('')}
 
@@ -6379,6 +6399,8 @@ function renderTeacher(){
   const views={
 
     reports:renderTeacherReports,
+
+    uploads:renderTeacherUploads,
 
     evals:renderTeacherEvals,
 
@@ -12406,3 +12428,237 @@ document.addEventListener(
    ========================================================= */
 
 boot();
+
+/* =========================================================
+   رفع أعمال المعلم من داخل المنصة
+   (تُحفظ الملفات في المنصة وتُسجَّل، والتقييم الأسبوعي
+   يقرأ منها، وتُنسخ تلقائيًا إلى مجلد المعلم في Drive)
+   ========================================================= */
+
+const UPLOAD_BUCKET='teacher-uploads';
+
+const UPLOAD_CATEGORIES=[
+  {key:'nonClass',   label:'المهام غير الصفية'},
+  {key:'kahoot',     label:'الألعاب اللغوية'},
+  {key:'ppt',        label:'العروض'},
+  {key:'enrich',     label:'الأنشطة الإثرائية'},
+  {key:'creativity', label:'الابداع والابتكار العلمي'},
+  {key:'assessment', label:'أساليب التقويم'}
+];
+
+function mapTeacherUpload(r){
+  return {
+    id:r.id,
+    teacherId:r.teacher_id,
+    category:r.category||'',
+    fileName:r.file_name||'',
+    filePath:r.file_path||'',
+    mimeType:r.mime_type||'',
+    sizeBytes:Number(r.size_bytes||0),
+    week:Number(r.week||1),
+    createdAt:r.created_at||''
+  };
+}
+
+async function loadTeacherUploads(){
+  DATA.teacherUploads=[];
+  const isAdmin=currentAdmin||currentProfile?.role==='admin';
+  if(!isAdmin && !currentTeacherId) return;
+  try{
+    const rows=await sb(
+      db().from('teacher_uploads').select('*')
+        .order('created_at',{ascending:false})
+    );
+    DATA.teacherUploads=(rows||[]).map(mapTeacherUpload);
+  }catch(e){
+    console.warn('تعذر تحميل مرفوعات المعلمين:',e);
+  }
+}
+
+function upCatLabel(key){
+  return UPLOAD_CATEGORIES.find(c=>c.key===key)?.label||key;
+}
+
+function upCurrentWeek(tid){
+  const groupNames=
+    DATA.rooms.filter(r=>r.teacherId===tid)
+      .map(r=>r.groupName).filter(Boolean);
+  const groups=DATA.groups
+    .filter(g=>g.startDate && groupNames.includes(g.name))
+    .sort((a,b)=>String(b.startDate).localeCompare(String(a.startDate)));
+  const g=groups[0];
+  if(!g) return 1;
+  const start=new Date(g.startDate+'T00:00:00');
+  const days=Math.floor((Date.now()-start.getTime())/86400000);
+  return Math.max(1,Math.floor(days/7)+1);
+}
+
+function upTeacherUploads(tid){
+  return DATA.teacherUploads.filter(u=>u.teacherId===tid);
+}
+
+function upCount(tid,critKey,week){
+  return DATA.teacherUploads.filter(u=>
+    u.teacherId===tid && u.category===critKey && u.week===week
+  ).length;
+}
+
+function upFmtSize(n){
+  n=Number(n||0);
+  if(n>=1048576) return (n/1048576).toFixed(1)+' م.ب';
+  if(n>=1024) return Math.round(n/1024)+' ك.ب';
+  return n+' ب';
+}
+
+function upSafeName(name){
+  const base=String(name||'file').replace(/[^\w.\-]+/g,'_');
+  return base.slice(-80)||'file';
+}
+
+function upItemHtml(u,withDelete){
+  return `
+    <div class="up-item">
+      <div class="up-item-main">
+        ${icon('file',15)}
+        <span class="up-name">${esc(u.fileName)}</span>
+        <span class="up-meta">${esc(upCatLabel(u.category))} · أسبوع ${u.week} · ${upFmtSize(u.sizeBytes)}</span>
+      </div>
+      <div class="up-item-actions">
+        <button type="button" class="btn ghost small" onclick="upOpen('${u.id}')">فتح</button>
+        ${withDelete?`<button type="button" class="btn ghost small" onclick="upDelete('${u.id}')">${icon('trash',14)}</button>`:''}
+      </div>
+    </div>`;
+}
+
+function renderTeacherUploads(){
+  const tid=currentTeacherId;
+  const mine=upTeacherUploads(tid);
+  const week=upCurrentWeek(tid);
+  const weekCount=mine.filter(u=>u.week===week).length;
+
+  return panel('رفع أعمالي',`
+    <div class="notice">
+      ارفع أعمالك من هنا مباشرة — تصوير أو ملف — وتُحفظ في المنصة
+      وتُنسخ تلقائيًا إلى مجلدك في Drive، والتقييم الأسبوعي يقرأ منها.
+    </div>
+
+    <div class="up-form">
+      <label class="modal-label">نوع العمل</label>
+      <select id="upCat" class="input">
+        ${UPLOAD_CATEGORIES.map(c=>`<option value="${c.key}">${esc(c.label)}</option>`).join('')}
+      </select>
+      <div class="up-actions">
+        <button type="button" class="btn primary" onclick="upPick('photo')">${icon('camera',16)} تصوير صورة</button>
+        <button type="button" class="btn primary" onclick="upPick('video')">${icon('video',16)} تصوير مقطع</button>
+        <button type="button" class="btn ghost" onclick="upPick('file')">${icon('upload',16)} رفع ملف</button>
+      </div>
+      <input type="file" id="upInputPhoto" accept="image/*" capture="environment" hidden onchange="upHandleFiles(this)">
+      <input type="file" id="upInputVideo" accept="video/*" capture="environment" hidden onchange="upHandleFiles(this)">
+      <input type="file" id="upInputFile" multiple hidden onchange="upHandleFiles(this)">
+    </div>
+
+    <h4 style="margin:14px 0 8px;">أعمالي — الأسبوع ${week} (${weekCount})</h4>
+    <div class="up-list">
+      ${mine.length?mine.map(u=>upItemHtml(u,true)).join(''):'<div class="notice">لا توجد أعمال مرفوعة بعد.</div>'}
+    </div>
+  `);
+}
+
+function upPick(kind){
+  const el=
+    kind==='photo'?$('upInputPhoto'):
+    kind==='video'?$('upInputVideo'):
+    $('upInputFile');
+  el?.click();
+}
+
+async function upHandleFiles(input){
+  const files=[...(input.files||[])];
+  input.value='';
+  if(!files.length) return;
+  const tid=currentTeacherId;
+  if(!tid){ toast('سجّل دخولك أولًا.',true); return; }
+  const cat=$('upCat')?.value||'nonClass';
+  const week=upCurrentWeek(tid);
+  let done=0;
+  for(const f of files){
+    try{
+      toast(`جاري رفع ${f.name}...`);
+      const path=`${tid}/${week}/${Date.now()}-${Math.random().toString(36).slice(2,8)}-${upSafeName(f.name)}`;
+      await sb(
+        db().storage.from(UPLOAD_BUCKET).upload(path,f,{contentType:f.type||undefined})
+      );
+      const row=await sb(
+        db().from('teacher_uploads').insert({
+          teacher_id:tid,
+          category:cat,
+          file_name:f.name,
+          file_path:path,
+          mime_type:f.type||null,
+          size_bytes:f.size||null,
+          week
+        }).select().single()
+      );
+      DATA.teacherUploads.unshift(mapTeacherUpload(row));
+      done++;
+    }catch(e){
+      console.warn(e);
+      toast(e?.message||'تعذر رفع الملف',true);
+    }
+  }
+  if(done) toast(done>1?`تم رفع ${done} ملفات`:'تم رفع الملف');
+  renderTeacher();
+}
+
+async function upOpen(id){
+  const u=DATA.teacherUploads.find(x=>x.id===id);
+  if(!u) return;
+  try{
+    const r=await sb(
+      db().storage.from(UPLOAD_BUCKET).createSignedUrl(u.filePath,3600)
+    );
+    window.open(r.signedUrl,'_blank');
+  }catch(e){
+    toast('تعذر فتح الملف',true);
+  }
+}
+
+async function upDelete(id){
+  const u=DATA.teacherUploads.find(x=>x.id===id);
+  if(!u) return;
+  if(!confirm(`حذف "${u.fileName}"؟`)) return;
+  try{
+    await sb(db().storage.from(UPLOAD_BUCKET).remove([u.filePath]));
+    await sb(db().from('teacher_uploads').delete().eq('id',id));
+    DATA.teacherUploads=DATA.teacherUploads.filter(x=>x.id!==id);
+    toast('تم حذف الملف');
+    if(currentAdmin) renderAdmin(); else renderTeacher();
+  }catch(e){
+    toast('تعذر حذف الملف',true);
+  }
+}
+
+function upOpenList(tid,critKey){
+  closeEditModal();
+  const t=getTeacher(tid);
+  const list=DATA.teacherUploads.filter(u=>
+    u.teacherId===tid && u.category===critKey && u.week===evWeek
+  );
+  const wrap=document.createElement('div');
+  wrap.id='editModal';
+  wrap.className='modal-backdrop';
+  wrap.innerHTML=`
+    <div class="modal-box" role="dialog">
+      <h3>${esc(upCatLabel(critKey))} — ${esc(t?.name||'')} — الأسبوع ${evWeek}</h3>
+      <div class="up-list">
+        ${list.length?list.map(u=>upItemHtml(u,false)).join(''):'<div class="notice">لا توجد ملفات مرفوعة.</div>'}
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn ghost" onclick="closeEditModal()">إغلاق</button>
+      </div>
+    </div>`;
+  wrap.addEventListener('mousedown',e=>{
+    if(e.target===wrap) closeEditModal();
+  });
+  document.body.appendChild(wrap);
+}

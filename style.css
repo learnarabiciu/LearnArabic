@@ -941,3 +941,69 @@ td.assignee-cell{vertical-align:middle;}
 .assignee-tag.mgmt{
   border:1px solid var(--gold);
 }
+
+/* رفع أعمال المعلم */
+.up-form{
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+  margin:12px 0 4px;
+}
+.up-actions{
+  display:flex;
+  gap:8px;
+  flex-wrap:wrap;
+}
+.up-list{
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+}
+.up-item{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  background:#fff;
+  border:1px solid var(--line,#e7e2d8);
+  border-radius:12px;
+  padding:8px 12px;
+}
+.up-item-main{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  min-width:0;
+}
+.up-name{
+  font-weight:600;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  max-width:260px;
+}
+.up-meta{
+  color:#8a8478;
+  font-size:12px;
+  white-space:nowrap;
+}
+.up-item-actions{
+  display:flex;
+  gap:6px;
+}
+.up-badge{
+  display:inline-flex;
+  align-items:center;
+  gap:4px;
+  margin-top:4px;
+  padding:2px 8px;
+  border:1px solid var(--line,#e7e2d8);
+  border-radius:999px;
+  background:#f6f3ec;
+  color:#6b6455;
+  font-size:11px;
+  cursor:pointer;
+}
+.up-badge:hover{
+  background:#efe9dc;
+}

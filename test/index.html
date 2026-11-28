@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#47225c">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/png" sizes="32x32" href="assets/icons/favicon-32.png">
+<link rel="icon" type="image/png" sizes="64x64" href="assets/icons/favicon-64.png">
+<link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="تعلّم العربية">
+<title>منصة تعلم العربية </title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@300;400;500;700;800;900&family=Cairo:wght@500;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+
+<!-- ربط Supabase -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+  const SUPABASE_URL = 'https://mresinrhhzmrialcqjyr.supabase.co';
+  const SUPABASE_KEY = 'sb_publishable_R92kgFxPudlmAsiDYu2vow_3CLortUp';
+  const supabaseClient = window.supabase.createClient(
+    SUPABASE_URL,
+    SUPABASE_KEY
+  );
+</script>
+</head>
+<body>
+
+<header class="app-header">
+  <div class="brand">
+    <img src="assets/Arabic_logo.png" alt="شعار البرنامج">
+    <div class="brand-div"></div>
+    <img src="assets/logo-saqifah.png" alt="شعار السقيفة">
+    <div class="brand-text">
+      <b>منصة تعلم العربية </b>
+      <span>برنامج تعلم العربية &middot; السقيفة</span>
+    </div>
+  </div>
+  <div class="header-actions" id="headerActions"></div>
+</header>
+
+<!-- شاشة تسجيل الدخول -->
+<!-- ملاحظة: الإدارة تسجل الدخول ببريد وكلمة مرور Supabase Auth كالسابق.
+     المعلم/ـة يسجل الدخول اختيار اسمه من القائمة + كود الدخول الذي تعطيه له
+     الإدارة من لوحة "المعلمون" (بدون حاجة لبريد إلكتروني أو Supabase Auth). -->
+<section id="screen-role" class="screen active">
+  <div class="login-shell">
+    <div class="login-box tabs-on" id="loginBox">
+      <h2>تسجيل الدخول</h2>
+      <p class="lead">اختر نوع الدخول ثم أدخل بياناتك.</p>
+
+      <div class="login-tabs" id="loginTabs">
+        <button type="button" data-role="ceo" onclick="setLoginRole('ceo')"><span class="ceo-dot"></span> مدير الأكاديمية</button>
+        <button type="button" data-role="admin" onclick="setLoginRole('admin')">الإدارة</button>
+        <button type="button" data-role="teacher" onclick="setLoginRole('teacher')">المعلم/ـة</button>
+        <button type="button" data-role="employee" onclick="setLoginRole('employee')">الموظف/ـة</button>
+      </div>
+
+      <div class="login-section login-pane" data-pane="ceo">
+        <label>مدير الأكاديمية</label>
+        <div class="field">
+          <input type="password" id="ceoCodeInput" placeholder="كود الدخول" autocomplete="off">
+        </div>
+        <button class="btn primary block" onclick="ceoCodeLogin()">دخول مدير الأكاديمية</button>
+      </div>
+
+      <div class="login-section login-pane" data-pane="admin">
+        <label>الإدارة</label>
+        <div class="field">
+          <input type="email" id="adminEmailInput" placeholder="البريد الإلكتروني" autocomplete="username">
+        </div>
+        <div class="field">
+          <input type="password" id="adminPwInput" placeholder="كلمة المرور" autocomplete="current-password">
+        </div>
+        <button class="btn primary block" onclick="adminLogin()">دخول لوحة الإدارة</button>
+        <div id="adminHint" class="hint">استخدم البريد الإلكتروني وكلمة المرور الخاصة بحساب الإدارة.</div>
+      </div>
+
+      <div class="login-section login-pane" data-pane="teacher">
+        <label>المعلم/ـة</label>
+        <div class="field">
+          <select id="teacherSelect"><option value="">جاري تحميل الأسماء...</option></select>
+        </div>
+        <div class="field">
+          <input type="text" id="teacherCodeInput" placeholder="كود الدخول (مثال: X7I12)">
+        </div>
+        <button class="btn secondary block" onclick="teacherCodeLogin()">دخول المعلم/ـة</button>
+        <div class="hint">استخدم اسمك وكود الدخول الذي أعطتك إياه الإدارة.</div>
+      </div>
+
+      <div class="login-section login-pane" data-pane="employee">
+        <label>الموظف/ـة</label>
+        <div class="field">
+          <select id="employeeSelect"><option value="">جاري تحميل الأسماء...</option></select>
+        </div>
+        <div class="field">
+          <input type="text" id="employeeCodeInput" placeholder="كود الدخول (مثال: K4M92)">
+        </div>
+        <button class="btn ghost block" onclick="employeeCodeLogin()">دخول الموظف/ـة</button>
+        <div class="hint">استخدم اسمك وكود الدخول الذي أعطتك إياه الإدارة.</div>
+      </div>
+
+      <div class="install-box" id="installBox" hidden>
+        <button type="button" class="btn ghost block" id="installBtn"><svg class="ic" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg> تثبيت الموقع كتطبيق على جوالك</button>
+        <div class="hint" id="installHint"></div>
+      </div>
+
+      <div class="site-credit" title="Abdulwahab Hanif">
+        <img src="assets/ah-logo.png" alt="AH">
+        <span>Designed by <b>AH</b></span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- لوحة الإدارة -->
+<section id="screen-admin" class="screen">
+  <div class="layout">
+    <nav class="sidebar" id="adminNav"></nav>
+    <div class="main-panel" id="adminMain"></div>
+  </div>
+</section>
+
+<!-- لوحة المعلم -->
+<section id="screen-teacher" class="screen">
+  <div class="layout">
+    <nav class="sidebar" id="teacherNav"></nav>
+    <div class="main-panel" id="teacherMain"></div>
+  </div>
+</section>
+
+<!-- لوحة الموظف -->
+<section id="screen-employee" class="screen">
+  <div class="layout">
+    <nav class="sidebar" id="employeeNav"></nav>
+    <div class="main-panel" id="employeeMain"></div>
+  </div>
+</section>
+
+<!-- لوحة مدير الأكاديمية -->
+<section id="screen-ceo" class="screen">
+  <div class="layout">
+    <nav class="sidebar" id="ceoNav"></nav>
+    <div class="main-panel" id="ceoMain"></div>
+  </div>
+</section>
+
+<div class="toast-wrap" id="toastWrap"></div>
+
+<script src="script.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+<script>
+/* تبويبات الدخول: يتذكّر آخر نوع دخول استخدمته */
+function setLoginRole(role){
+  const box=document.getElementById('loginBox');
+  if(!box) return;
+  box.querySelectorAll('.login-pane').forEach(p=>{
+    p.hidden = p.dataset.pane!==role;
+  });
+  box.querySelectorAll('#loginTabs button').forEach(b=>{
+    b.classList.toggle('active', b.dataset.role===role);
+  });
+  try{ localStorage.setItem('saqifah:loginRole',role); }catch{}
+}
+(function(){
+  let r='teacher';
+  try{ r=localStorage.getItem('saqifah:loginRole')||'teacher'; }catch{}
+  if(!['ceo','admin','teacher','employee'].includes(r)) r='teacher';
+  setLoginRole(r);
+})();
+
+/* تثبيت الموقع كتطبيق (PWA) */
+let deferredInstall=null;
+window.addEventListener('beforeinstallprompt',e=>{
+  e.preventDefault();
+  deferredInstall=e;
+  document.getElementById('installBox').hidden=false;
+});
+document.getElementById('installBtn')?.addEventListener('click',async()=>{
+  if(!deferredInstall) return;
+  deferredInstall.prompt();
+  await deferredInstall.userChoice;
+  deferredInstall=null;
+  document.getElementById('installBox').hidden=true;
+});
+(function(){
+  const isIOS=/iphone|ipad|ipod/i.test(navigator.userAgent);
+  const standalone=window.matchMedia('(display-mode: standalone)').matches||navigator.standalone;
+  if(isIOS && !standalone){
+    document.getElementById('installBox').hidden=false;
+    document.getElementById('installBtn').style.display='none';
+    document.getElementById('installHint').textContent=
+      'لتثبيته على الآيفون: اضغط زر المشاركة في سفاري ثم "إضافة إلى الشاشة الرئيسية".';
+  }
+})();
+if('serviceWorker' in navigator){
+  window.addEventListener('load',()=>{
+    navigator.serviceWorker.register('sw.js').catch(()=>{});
+  });
+}
+</script>
+</body>
+</html>
