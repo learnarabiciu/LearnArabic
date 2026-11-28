@@ -1,5 +1,5 @@
 /* Service worker بسيط: يجلب أحدث نسخة من الإنترنت دائمًا، ويستخدم النسخة المحفوظة فقط عند انقطاع الاتصال */
-const CACHE = 'taallum-arabic-v1';
+const CACHE = 'taallum-arabic-test-v1';
 const SHELL = ['./', 'index.html', 'style.css', 'script.js', 'manifest.json',
   'assets/icons/icon-192.png', 'assets/icons/icon-512.png'];
 

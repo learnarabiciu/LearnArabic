@@ -196,7 +196,7 @@ function ceoBadgeHtml(){
 
 async function enterAdminFromEmployee(){
   currentAdmin=true;
-  adminTab='staff';
+  adminTab='home';
   staffNav.admin.view='home';
   staffNav.admin.group=null;
   showScreen('screen-admin');
@@ -356,6 +356,9 @@ function avgScores(obj,criteria,maxScale=5){
 }
 
 const ICONS={
+  home:'<path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/>',
+  gear:'<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
+  dots:'<circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/>',
   camera:'<rect x="3" y="7" width="18" height="13" rx="2"/><circle cx="12" cy="13" r="4"/><path d="M8 7l1.5-3h5L16 7"/>',
   video:'<rect x="2" y="6" width="13" height="12" rx="2"/><path d="M15 10l7-4v12l-7-4"/>',
   edit:'<path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/>',
@@ -936,7 +939,7 @@ async function teacherCodeLogin(){
     selectedTeacherRoomId=
       teacherRooms()[0]?.id||null;
 
-    teacherTab='reports';
+    teacherTab='home';
 
     showScreen('screen-teacher');
 
@@ -1151,6 +1154,13 @@ function renderAdminNav(){
   n.innerHTML=[
 
     navButton(
+      'home',
+      'الرئيسية',
+      adminTab==='home',
+      "adminTab='home';renderAdmin()"
+    ),
+
+    navButton(
       'rooms',
       'القاعات والدورات',
       adminTab==='rooms',
@@ -1234,6 +1244,13 @@ function renderTeacherNav(){
   n.innerHTML=[
 
     navButton(
+      'home',
+      'الرئيسية',
+      teacherTab==='home',
+      "teacherTab='home';renderTeacher()"
+    ),
+
+    navButton(
       'reports',
       'التقارير الأسبوعية',
       teacherTab==='reports',
@@ -1293,6 +1310,8 @@ function renderAdmin(){
 
   const views={
 
+    home:renderAdminHome,
+
     rooms:renderAdminRooms,
 
     teachers:renderAdminTeachers,
@@ -1314,6 +1333,8 @@ function renderAdmin(){
   };
 
   m.innerHTML=views[adminTab]();
+
+  renderMobileBar('admin');
 }
 
 
@@ -6398,6 +6419,8 @@ function renderTeacher(){
 
   const views={
 
+    home:renderTeacherHome,
+
     reports:renderTeacherReports,
 
     uploads:renderTeacherUploads,
@@ -6414,6 +6437,8 @@ function renderTeacher(){
 
   m.innerHTML=
     views[teacherTab]();
+
+  renderMobileBar('teacher');
 
 }
 
@@ -12652,6 +12677,160 @@ function upOpenList(tid,critKey){
       <h3>${esc(upCatLabel(critKey))} — ${esc(t?.name||'')} — الأسبوع ${evWeek}</h3>
       <div class="up-list">
         ${list.length?list.map(u=>upItemHtml(u,false)).join(''):'<div class="notice">لا توجد ملفات مرفوعة.</div>'}
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn ghost" onclick="closeEditModal()">إغلاق</button>
+      </div>
+    </div>`;
+  wrap.addEventListener('mousedown',e=>{
+    if(e.target===wrap) closeEditModal();
+  });
+  document.body.appendChild(wrap);
+}
+
+/* =========================================================
+   التصميم الموحد للجوال — الرئيسية + شريط التنقل السفلي
+   ========================================================= */
+
+const MOBILE_SECTIONS_ADMIN=[
+  {tab:'rooms',      label:'القاعات والدورات', ic:'folder'},
+  {tab:'teachers',   label:'المعلمون والمعلمات', ic:'users'},
+  {tab:'teacherEval',label:'تقييم المعلمين', ic:'star'},
+  {tab:'students',   label:'الطلاب', ic:'medal'},
+  {tab:'staff',      label:'الموظفون والمهام', ic:'clipboard'},
+  {tab:'reports',    label:'التقارير الأسبوعية', ic:'file'},
+  {tab:'announce',   label:'الإعلانات', ic:'send'},
+  {tab:'export',     label:'التصدير', ic:'download'},
+  {tab:'settings',   label:'الإعدادات', ic:'gear'}
+];
+
+const MOBILE_SECTIONS_TEACHER=[
+  {tab:'reports', label:'التقارير الأسبوعية', ic:'file'},
+  {tab:'uploads', label:'رفع أعمالي', ic:'upload'},
+  {tab:'evals',   label:'تقييماتي', ic:'star'},
+  {tab:'attend',  label:'تحضيري', ic:'hand'},
+  {tab:'announce',label:'الإعلانات', ic:'send'},
+  {tab:'settings',label:'الإعدادات', ic:'gear'}
+];
+
+function mobileGo(role,tab){
+  if(role==='admin'){ adminTab=tab; renderAdmin(); }
+  else { teacherTab=tab; renderTeacher(); }
+}
+
+function renderAdminHome(){
+  const crit=evCriteria();
+  const maxSum=crit.reduce((a,c)=>a+Number(c.max||0),0)||1;
+  const ts=evTeachersSorted().filter(t=>!evShortCourseTeacher(t.id));
+  const scored=ts.filter(t=>evDraftTotal(t.id,evWeek)>0);
+  const pct=scored.length
+    ? Math.round(scored.reduce((a,t)=>a+Math.min(1,evDraftTotal(t.id,evWeek)/maxSum),0)/scored.length*100)
+    : 0;
+
+  return `
+    <div class="home-hero">
+      <div class="home-hero-text">
+        <b>لوحة الإدارة</b>
+        <span>نظرة سريعة على أسبوع العمل</span>
+      </div>
+      <div class="home-ring" style="--p:${pct}">
+        <b>${pct}%</b>
+        <span>تقييم الأسبوع ${evWeek}</span>
+      </div>
+    </div>
+    <div class="home-grid">
+      ${MOBILE_SECTIONS_ADMIN.map(s=>`
+        <button type="button" class="home-tile" onclick="mobileGo('admin','${s.tab}')">
+          ${icon(s.ic,22)}
+          <span>${esc(s.label)}</span>
+        </button>`).join('')}
+    </div>
+  `;
+}
+
+function renderTeacherHome(){
+  const tid=currentTeacherId;
+  const week=upCurrentWeek(tid);
+  const mine=upTeacherUploads(tid).filter(u=>u.week===week);
+  const cats=new Set(mine.map(u=>u.category));
+  const pct=Math.round(cats.size/UPLOAD_CATEGORIES.length*100);
+
+  return `
+    <div class="home-hero">
+      <div class="home-hero-text">
+        <b>أهلًا ${esc(getTeacher(tid)?.name||'')}</b>
+        <span>أعمالك هذا الأسبوع: ${mine.length} ${mine.length===1?'ملف':'ملفات'}</span>
+      </div>
+      <div class="home-ring" style="--p:${pct}">
+        <b>${pct}%</b>
+        <span>تغطية الأسبوع ${week}</span>
+      </div>
+    </div>
+    <div class="home-grid">
+      ${MOBILE_SECTIONS_TEACHER.map(s=>`
+        <button type="button" class="home-tile" onclick="mobileGo('teacher','${s.tab}')">
+          ${icon(s.ic,22)}
+          <span>${esc(s.label)}</span>
+        </button>`).join('')}
+    </div>
+  `;
+}
+
+function renderMobileBar(role){
+  const screen=$(role==='admin'?'screen-admin':'screen-teacher');
+  if(!screen) return;
+  screen.querySelector('.mobile-bar')?.remove();
+
+  const current=role==='admin'?adminTab:teacherTab;
+  const main=role==='admin'
+    ? [
+        {tab:'home',       label:'الرئيسية', ic:'home'},
+        {tab:'teachers',   label:'المعلمون', ic:'users'},
+        {tab:'teacherEval',label:'التقييم',  ic:'star'},
+        {tab:'staff',      label:'المهام',   ic:'clipboard'}
+      ]
+    : [
+        {tab:'home',    label:'الرئيسية',  ic:'home'},
+        {tab:'uploads', label:'رفع أعمالي', ic:'upload'},
+        {tab:'evals',   label:'تقييماتي',  ic:'star'},
+        {tab:'attend',  label:'تحضيري',    ic:'hand'}
+      ];
+
+  const bar=document.createElement('nav');
+  bar.className='mobile-bar';
+  bar.innerHTML=
+    main.map(s=>`
+      <button type="button" class="mb-item${current===s.tab?' active':''}"
+        onclick="mobileGo('${role}','${s.tab}')">
+        ${icon(s.ic,20)}
+        <span>${esc(s.label)}</span>
+      </button>`).join('')+
+    `<button type="button" class="mb-item" onclick="openMoreSheet('${role}')">
+      ${icon('dots',20)}
+      <span>المزيد</span>
+    </button>`;
+  screen.appendChild(bar);
+}
+
+function openMoreSheet(role){
+  closeEditModal();
+  const all=role==='admin'?MOBILE_SECTIONS_ADMIN:MOBILE_SECTIONS_TEACHER;
+  const skip=role==='admin'?['teachers','teacherEval','staff']:['uploads','evals','attend'];
+  const items=all.filter(s=>!skip.includes(s.tab));
+
+  const wrap=document.createElement('div');
+  wrap.id='editModal';
+  wrap.className='modal-backdrop';
+  wrap.innerHTML=`
+    <div class="modal-box" role="dialog">
+      <h3>الأقسام</h3>
+      <div class="home-grid">
+        ${items.map(s=>`
+          <button type="button" class="home-tile"
+            onclick="closeEditModal();mobileGo('${role}','${s.tab}')">
+            ${icon(s.ic,22)}
+            <span>${esc(s.label)}</span>
+          </button>`).join('')}
       </div>
       <div class="modal-actions">
         <button type="button" class="btn ghost" onclick="closeEditModal()">إغلاق</button>
