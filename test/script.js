@@ -12909,7 +12909,7 @@ function renderAdminHome(){
   const pct=scored.length
     ? Math.round(scored.reduce((a,t)=>a+Math.min(1,evDraftTotal(t.id,evWeek)/maxSum),0)/scored.length*100)
     : 0;
-  const name=(currentProfile&&currentProfile.name)||'الإدارة';
+  const name=(currentProfile&&currentProfile.name)||((DATA.employees||[]).find(e=>e.id===currentEmployeeId)||{}).name||'الإدارة';
   return `
     <div class="mp-head">
       <div class="mp-head-top">
